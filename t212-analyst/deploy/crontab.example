@@ -1,0 +1,5 @@
+# Alternative to systemd: run monitor.py --once every 15 minutes on weekdays (Mon-Fri)
+# Edit with: crontab -e
+# Ensure TZ matches your market timezone or let monitor.py check MARKET_HOURS_ONLY=true
+
+*/15 * * * 1-5 cd /opt/t212-analyst && /opt/t212-analyst/.venv/bin/python /opt/t212-analyst/monitor.py --once >> /opt/t212-analyst/data/cron.log 2>&1
