@@ -1,0 +1,23 @@
+[Unit]
+Description=Trading 212 Telegram Human-in-the-Loop Approval Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_LINUX_USER
+Group=YOUR_LINUX_USER
+WorkingDirectory=/opt/t212-analyst
+EnvironmentFile=/opt/t212-analyst/.env
+ExecStart=/opt/t212-analyst/.venv/bin/python /opt/t212-analyst/telegram_bot.py
+Restart=on-failure
+RestartSec=10
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/t212-analyst/data
+
+[Install]
+WantedBy=multi-user.target

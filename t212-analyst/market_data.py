@@ -8,7 +8,16 @@ from pathlib import Path
 from typing import Any
 
 import feedparser
-import yfinance as yf
+import requests
+
+try:
+    import yfinance as yf  # type: ignore[import-untyped]
+except (ImportError, OSError) as exc:
+    yf = None  # type: ignore[assignment]
+    logging.getLogger(__name__).warning(
+        "yfinance unavailable (%s); using pure-Python Yahoo Finance HTTP + RSS fallback.",
+        exc,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -81,50 +90,90 @@ def fetch_rss_news(yahoo_symbol: str, limit: int = 5) -> list[dict[str, str]]:
         return []
 
 
+def _fetch_chart_http(yahoo_symbol: str) -> tuple[float | None, float | None, float | None, float | None]:
+    """Pure-Python fallback using Yahoo Finance v8 chart JSON endpoint (no pandas/DLLs)."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+    try:
+        resp = requests.get(
+            url,
+            params={"range": "5d", "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; t212-analyst/1.0)"},
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.warning("Yahoo chart HTTP %s for %s", resp.status_code, yahoo_symbol)
+            return None, None, None, None
+        data = resp.json()
+        result = (data.get("chart", {}).get("result") or [None])[0]
+        if not result:
+            return None, None, None, None
+
+        quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+        closes = [c for c in (quote.get("close") or []) if c is not None]
+        volumes = [v for v in (quote.get("volume") or []) if v is not None]
+
+        price = float(closes[-1]) if len(closes) >= 1 else None
+        prev_close = float(closes[-2]) if len(closes) >= 2 else None
+        change_pct = (
+            ((price - prev_close) / prev_close) * 100.0
+            if price is not None and prev_close
+            else None
+        )
+        volume = float(volumes[-1]) if volumes else None
+        return price, prev_close, change_pct, volume
+    except Exception as exc:
+        logger.warning("Yahoo chart HTTP fallback failed for %s: %s", yahoo_symbol, exc)
+        return None, None, None, None
+
+
 def fetch_symbol_snapshot(
     yahoo_symbol: str,
     t212_ticker: str | None = None,
     move_threshold_pct: float = 2.0,
 ) -> dict[str, Any]:
-    """Pull current price, daily % change, volume, and recent news via yfinance/RSS."""
+    """Pull current price, daily % change, volume, and recent news via yfinance or HTTP/RSS."""
     price: float | None = None
     prev_close: float | None = None
     change_pct: float | None = None
     volume: float | None = None
     news_items: list[dict[str, str]] = []
 
-    try:
-        ticker = yf.Ticker(yahoo_symbol)
-        hist = ticker.history(period="5d", interval="1d")
-        if not hist.empty:
-            closes = hist["Close"].dropna()
-            if len(closes) >= 1:
-                price = float(closes.iloc[-1])
-            if len(closes) >= 2:
-                prev_close = float(closes.iloc[-2])
-                if prev_close:
-                    change_pct = ((price - prev_close) / prev_close) * 100.0
-            if "Volume" in hist and not hist["Volume"].dropna().empty:
-                volume = float(hist["Volume"].dropna().iloc[-1])
+    if yf is not None:
+        try:
+            ticker = yf.Ticker(yahoo_symbol)
+            hist = ticker.history(period="5d", interval="1d")
+            if not hist.empty:
+                closes = hist["Close"].dropna()
+                if len(closes) >= 1:
+                    price = float(closes.iloc[-1])
+                if len(closes) >= 2:
+                    prev_close = float(closes.iloc[-2])
+                    if prev_close:
+                        change_pct = ((price - prev_close) / prev_close) * 100.0
+                if "Volume" in hist and not hist["Volume"].dropna().empty:
+                    volume = float(hist["Volume"].dropna().iloc[-1])
 
-        raw_news = getattr(ticker, "news", None) or []
-        for item in raw_news[:5]:
-            content = item.get("content", item) if isinstance(item, dict) else {}
-            title = str(content.get("title", "")).strip()
-            if title:
-                news_items.append(
-                    {
-                        "title": title,
-                        "published": str(content.get("pubDate", "")),
-                        "link": str(
-                            (content.get("canonicalUrl") or {}).get("url", "")
-                            if isinstance(content.get("canonicalUrl"), dict)
-                            else content.get("link", "")
-                        ),
-                    }
-                )
-    except Exception as exc:
-        logger.warning("yfinance fetch error for %s: %s", yahoo_symbol, exc)
+            raw_news = getattr(ticker, "news", None) or []
+            for item in raw_news[:5]:
+                content = item.get("content", item) if isinstance(item, dict) else {}
+                title = str(content.get("title", "")).strip()
+                if title:
+                    news_items.append(
+                        {
+                            "title": title,
+                            "published": str(content.get("pubDate", "")),
+                            "link": str(
+                                (content.get("canonicalUrl") or {}).get("url", "")
+                                if isinstance(content.get("canonicalUrl"), dict)
+                                else content.get("link", "")
+                            ),
+                        }
+                    )
+        except Exception as exc:
+            logger.warning("yfinance fetch error for %s: %s", yahoo_symbol, exc)
+
+    if price is None:
+        price, prev_close, change_pct, volume = _fetch_chart_http(yahoo_symbol)
 
     if not news_items:
         news_items = fetch_rss_news(yahoo_symbol, limit=5)
