@@ -28,7 +28,8 @@ def format_notification_message(
         lines.append("")
         lines.append("Pending Trade Proposals (require explicit human approval):")
         for pid in proposal_ids:
-            lines.append(f"  - Run: python executor.py approve {pid}")
+            lines.append(f"  - CLI: python executor.py approve {pid}")
+            lines.append(f"  - Telegram: /approve {pid}  |  /reject {pid}")
         lines.append("  - Or run: python executor.py interactive")
     return "\n".join(lines)
 
