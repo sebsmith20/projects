@@ -1,0 +1,32 @@
+{
+  "tickers": [
+    {
+      "t212_ticker": "AAPL_US_EQ",
+      "yahoo_symbol": "AAPL",
+      "name": "Apple Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Core mega-cap tech benchmark"
+    },
+    {
+      "t212_ticker": "MSFT_US_EQ",
+      "yahoo_symbol": "MSFT",
+      "name": "Microsoft Corp.",
+      "move_threshold_pct": 2.0,
+      "notes": "Cloud & AI exposure"
+    },
+    {
+      "t212_ticker": "NVDA_US_EQ",
+      "yahoo_symbol": "NVDA",
+      "name": "NVIDIA Corp.",
+      "move_threshold_pct": 3.0,
+      "notes": "Higher volatility semiconductor leader"
+    },
+    {
+      "t212_ticker": "SPY_US_EQ",
+      "yahoo_symbol": "SPY",
+      "name": "SPDR S&P 500 ETF Trust",
+      "move_threshold_pct": 1.5,
+      "notes": "Broad US market gauge"
+    }
+  ]
+}
