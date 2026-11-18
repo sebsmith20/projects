@@ -2,8 +2,8 @@ name: T212 Market Monitor (Telegram Alerts)
 
 on:
   schedule:
-    # Every 15 minutes, Mon-Fri, covering US market hours across EST & EDT (UTC 13:00-21:59)
-    - cron: "*/15 13-21 * * 1-5"
+    # Hourly at :17 past the hour (off-peak minute avoids :00/:30 GitHub queue drops), Mon-Fri US market hours
+    - cron: "17 13-21 * * 1-5"
   workflow_dispatch:
     inputs:
       force_analysis:
