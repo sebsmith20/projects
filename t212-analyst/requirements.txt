@@ -3,6 +3,5 @@ python-dotenv>=1.0.1
 # yfinance is optional (market_data.py uses pure-Python Yahoo HTTP + RSS fallback by default)
 # yfinance>=0.2.40
 feedparser>=6.0.11
-openai>=1.40.0
 tzdata>=2024.1
 pytest>=8.0.0

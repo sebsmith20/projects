@@ -218,18 +218,30 @@ def generate_briefing(
         raw = _fallback_rule_based_analysis(positions, cash_data, market_snapshots, trigger_reason)
         return _format_briefing_markdown(raw), raw
 
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    base_url = settings.llm_base_url.rstrip("/")
     prompt = _build_llm_prompt(positions, cash_data, market_snapshots, trigger_reason)
 
-    response = client.chat.completions.create(
-        model=settings.llm_model,
-        temperature=0.2,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a concise, risk-aware equity analyst."},
-            {"role": "user", "content": prompt},
-        ],
+    resp = requests.post(
+        f"{base_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {settings.llm_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": settings.llm_model,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": "You are a concise, risk-aware equity analyst."},
+                {"role": "user", "content": prompt},
+            ],
+        },
+        timeout=60,
     )
-    content = response.choices[0].message.content or "{}"
+    if not resp.ok:
+        raise RuntimeError(f"LLM API error ({resp.status_code}): {resp.text[:300]}")
+
+    data = resp.json()
+    content = data["choices"][0]["message"]["content"] or "{}"
     raw = json.loads(content)
     return _format_briefing_markdown(raw), raw
