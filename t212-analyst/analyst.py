@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from openai import OpenAI
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+
+import requests
 
 from config import Settings
 
@@ -218,18 +223,57 @@ def generate_briefing(
         raw = _fallback_rule_based_analysis(positions, cash_data, market_snapshots, trigger_reason)
         return _format_briefing_markdown(raw), raw
 
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    base_url = settings.llm_base_url.rstrip("/")
     prompt = _build_llm_prompt(positions, cash_data, market_snapshots, trigger_reason)
 
-    response = client.chat.completions.create(
-        model=settings.llm_model,
-        temperature=0.2,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a concise, risk-aware equity analyst."},
-            {"role": "user", "content": prompt},
-        ],
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.llm_model,
+                    "temperature": 0.2,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": "You are a concise, risk-aware equity analyst."},
+                        {"role": "user", "content": prompt},
+                    ],
+                },
+                timeout=60,
+            )
+            if resp.ok:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"] or "{}"
+                raw = json.loads(content)
+                return _format_briefing_markdown(raw), raw
+
+            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            if resp.status_code in {429, 500, 502, 503, 504} and attempt < 3:
+                wait_sec = attempt * 3
+                logger.warning(
+                    "LLM transient error (%s) on attempt %d/3; retrying in %ds.",
+                    resp.status_code,
+                    attempt,
+                    wait_sec,
+                )
+                time.sleep(wait_sec)
+                continue
+            break
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            if attempt < 3:
+                time.sleep(attempt * 3)
+                continue
+            break
+
+    logger.error("LLM unavailable after retries (%s); using fallback briefing.", last_error)
+    raw = _fallback_rule_based_analysis(positions, cash_data, market_snapshots, trigger_reason)
+    raw["risk_flags"] = [f"LLM temporarily unavailable ({last_error[:120]}); fallback summary used."] + raw.get(
+        "risk_flags", []
     )
-    content = response.choices[0].message.content or "{}"
-    raw = json.loads(content)
     return _format_briefing_markdown(raw), raw

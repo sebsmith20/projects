@@ -8,7 +8,11 @@ import signal
 import sys
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
 
 from analyst import evaluate_trigger, generate_briefing
 from config import Settings, configure_logging, load_settings
