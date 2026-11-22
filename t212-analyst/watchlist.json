@@ -267,20 +267,6 @@
       "notes": "Global equity benchmark (LSE GBP)"
     },
     {
-      "t212_ticker": "CNDX_L_EQ",
-      "yahoo_symbol": "CNDX.L",
-      "name": "iShares Nasdaq 100 (Acc)",
-      "move_threshold_pct": 2.0,
-      "notes": "Nasdaq-100 growth benchmark (LSE GBP)"
-    },
-    {
-      "t212_ticker": "ISF_L_EQ",
-      "yahoo_symbol": "ISF.L",
-      "name": "iShares Core FTSE 100",
-      "move_threshold_pct": 1.5,
-      "notes": "UK large-cap benchmark (LSE GBX)"
-    },
-    {
       "t212_ticker": "LLY_US_EQ",
       "yahoo_symbol": "LLY",
       "name": "Eli Lilly and Co.",
@@ -328,13 +314,6 @@
       "name": "Procter & Gamble Co.",
       "move_threshold_pct": 1.5,
       "notes": "Consumer staples"
-    },
-    {
-      "t212_ticker": "IGLT_L_EQ",
-      "yahoo_symbol": "IGLT.L",
-      "name": "iShares Core UK Gilts",
-      "move_threshold_pct": 1.5,
-      "notes": "UK government bonds / defensive hedge (LSE GBP)"
     },
     {
       "t212_ticker": "V_US_EQ",
