@@ -83,12 +83,14 @@ def run_cycle(
         return
 
     logger.info("Analysis triggered: %s", trigger_reason)
+    macro_context = fetch_macro_context()
     summary_md, raw_payload = generate_briefing(
         settings=settings,
         positions=positions,
         cash_data=cash_data,
         market_snapshots=market_snapshots,
         trigger_reason=trigger_reason,
+        macro_context=macro_context,
     )
     briefing_id, proposal_ids = storage.save_briefing_and_proposals(
         trigger_reason=trigger_reason,

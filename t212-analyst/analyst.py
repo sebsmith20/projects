@@ -37,6 +37,14 @@ def evaluate_trigger(
             reasons.append(f"{sym} moved {chg:+.2f}% (threshold +/-{thresh:.1f}%)")
         if snap.get("catalysts"):
             reasons.append(f"{sym} news catalyst: {snap['catalysts'][0][:80]}")
+        tech = snap.get("technicals") or {}
+        rsi = tech.get("rsi_14")
+        if rsi is not None and (rsi <= 30 or rsi >= 70):
+            state = "oversold" if rsi <= 30 else "overbought"
+            reasons.append(f"{sym} RSI-14={rsi:.1f} ({state})")
+        vol_ratio = tech.get("volume_ratio_20d")
+        if vol_ratio is not None and vol_ratio >= 2.0:
+            reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
 
     tz = ZoneInfo(settings.market_timezone)
     local_now = now.astimezone(tz) if now else datetime.now(tz)
@@ -59,9 +67,11 @@ def _build_llm_prompt(
     cash_data: dict[str, Any],
     market_snapshots: list[dict[str, Any]],
     trigger_reason: str,
+    macro_context: dict[str, Any] | None = None,
 ) -> str:
     context = {
         "trigger_reason": trigger_reason,
+        "macro_context": macro_context or {},
         "account_cash": {
             "free": cash_data.get("free"),
             "invested": cash_data.get("invested"),
@@ -84,8 +94,9 @@ def _build_llm_prompt(
                 "t212_ticker": m.get("t212_ticker"),
                 "price": m.get("price"),
                 "change_pct": m.get("change_pct"),
+                "technicals": m.get("technicals", {}),
                 "catalysts": m.get("catalysts", []),
-                "headlines": [n["title"] for n in m.get("news", [])[:3]],
+                "headlines": [n["title"] for n in m.get("news", [])[:4]],
             }
             for m in market_snapshots
         ],
@@ -93,12 +104,14 @@ def _build_llm_prompt(
 
     return (
         "You are a disciplined portfolio risk analyst assisting a human trader on Trading 212.\n"
-        "Analyze the portfolio, cash balance, market moves, and news below.\n"
+        "Synthesize the macro regime (VIX, 10Y Treasury yield, DXY, GBP/USD, Gold, Oil), "
+        "technical indicators (RSI-14, SMA-20/50/200 trend, 52w high distance, 5d/20d momentum, "
+        "volume ratio, 20d volatility), news catalysts, and portfolio cash/P&L below.\n"
         "Return ONLY valid JSON with this exact schema:\n"
         "{\n"
-        '  "portfolio_pnl_impact": "concise 1-2 sentence summary",\n'
+        '  "portfolio_pnl_impact": "concise 1-2 sentence summary including macro backdrop",\n'
         '  "key_news_catalysts": ["bullet 1", "bullet 2"],\n'
-        '  "risk_flags": ["risk 1", "risk 2"],\n'
+        '  "risk_flags": ["risk 1 (macro/technical/concentration)", "risk 2"],\n'
         '  "trade_ideas": [\n'
         "    {\n"
         '      "t212_ticker": "AAPL_US_EQ",\n'
@@ -107,14 +120,14 @@ def _build_llm_prompt(
         '      "quantity": 1.0,\n'
         '      "order_type": "MARKET" | "LIMIT",\n'
         '      "limit_price": null,\n'
-        '      "reasoning": "concise rationale"\n'
+        '      "reasoning": "concise rationale citing technicals, macro, and catalysts"\n'
         "    }\n"
         "  ]\n"
         "}\n"
         "Rules:\n"
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
-        "- Prefer HOLD unless there is a clear catalyst or risk-management reason.\n"
+        "- Prefer HOLD unless macro + technicals + catalysts align.\n"
         "- For HOLD ideas, set quantity to 0.\n\n"
         f"DATA:\n{json.dumps(context, indent=2)}"
     )
@@ -216,6 +229,7 @@ def generate_briefing(
     cash_data: dict[str, Any],
     market_snapshots: list[dict[str, Any]],
     trigger_reason: str,
+    macro_context: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run LLM (or deterministic fallback) and return (markdown, raw_dict)."""
     if not settings.llm_api_key:
@@ -224,7 +238,9 @@ def generate_briefing(
         return _format_briefing_markdown(raw), raw
 
     base_url = settings.llm_base_url.rstrip("/")
-    prompt = _build_llm_prompt(positions, cash_data, market_snapshots, trigger_reason)
+    prompt = _build_llm_prompt(
+        positions, cash_data, market_snapshots, trigger_reason, macro_context=macro_context
+    )
 
     last_error = ""
     for attempt in range(1, 4):
