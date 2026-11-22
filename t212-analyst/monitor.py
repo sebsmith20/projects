@@ -16,7 +16,7 @@ except ImportError:
 
 from analyst import evaluate_trigger, generate_briefing
 from config import Settings, configure_logging, load_settings
-from market_data import collect_market_universe, load_watchlist
+from market_data import collect_market_universe, fetch_macro_context, load_watchlist
 from notifier import send_notifications
 from storage import Storage
 from t212_client import Trading212Client
@@ -83,12 +83,14 @@ def run_cycle(
         return
 
     logger.info("Analysis triggered: %s", trigger_reason)
+    macro_context = fetch_macro_context()
     summary_md, raw_payload = generate_briefing(
         settings=settings,
         positions=positions,
         cash_data=cash_data,
         market_snapshots=market_snapshots,
         trigger_reason=trigger_reason,
+        macro_context=macro_context,
     )
     briefing_id, proposal_ids = storage.save_briefing_and_proposals(
         trigger_reason=trigger_reason,
