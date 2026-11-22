@@ -35,6 +35,7 @@ def _make_settings(tmp_path: Path, **overrides: object) -> Settings:
         "market_close_minute": 0,
         "price_move_threshold_pct": 2.0,
         "daily_summary_only": False,
+        "scheduled_briefing_times": ("09:45", "15:45"),
         "daily_summary_hour": 16,
         "daily_summary_minute": 15,
         "llm_api_key": "",
