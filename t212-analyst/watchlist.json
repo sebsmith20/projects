@@ -239,20 +239,6 @@
       "notes": "Nuclear & uranium ETF (LSE GBP)"
     },
     {
-      "t212_ticker": "SMGB_L_EQ",
-      "yahoo_symbol": "SMGB.L",
-      "name": "VanEck Semiconductor (Acc)",
-      "move_threshold_pct": 2.5,
-      "notes": "Semiconductor ETF (LSE GBP)"
-    },
-    {
-      "t212_ticker": "GDGB_L_EQ",
-      "yahoo_symbol": "GDGB.L",
-      "name": "VanEck Gold Miners (Acc)",
-      "move_threshold_pct": 2.5,
-      "notes": "Gold miners ETF (LSE GBP)"
-    },
-    {
       "t212_ticker": "JEDG_L_EQ",
       "yahoo_symbol": "JEDG.L",
       "name": "VanEck Space Innovators (Acc)",
