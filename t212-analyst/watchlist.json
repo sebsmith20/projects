@@ -349,6 +349,20 @@
       "name": "iShares Core UK Gilts",
       "move_threshold_pct": 1.5,
       "notes": "UK government bonds / defensive hedge (LSE GBP)"
+    },
+    {
+      "t212_ticker": "V_US_EQ",
+      "yahoo_symbol": "V",
+      "name": "Visa Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Global payment network tollbooth"
+    },
+    {
+      "t212_ticker": "MA_US_EQ",
+      "yahoo_symbol": "MA",
+      "name": "Mastercard Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Global payment network tollbooth"
     }
   ]
 }
