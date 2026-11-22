@@ -272,6 +272,83 @@
       "name": "iShares Physical Gold ETC",
       "move_threshold_pct": 2.0,
       "notes": "Physical gold ETC (LSE GBX)"
+    },
+    {
+      "t212_ticker": "VWRP_L_EQ",
+      "yahoo_symbol": "VWRP.L",
+      "name": "Vanguard FTSE All-World (Acc)",
+      "move_threshold_pct": 1.5,
+      "notes": "Global equity benchmark (LSE GBP)"
+    },
+    {
+      "t212_ticker": "CNDX_L_EQ",
+      "yahoo_symbol": "CNDX.L",
+      "name": "iShares Nasdaq 100 (Acc)",
+      "move_threshold_pct": 2.0,
+      "notes": "Nasdaq-100 growth benchmark (LSE GBP)"
+    },
+    {
+      "t212_ticker": "ISF_L_EQ",
+      "yahoo_symbol": "ISF.L",
+      "name": "iShares Core FTSE 100",
+      "move_threshold_pct": 1.5,
+      "notes": "UK large-cap benchmark (LSE GBX)"
+    },
+    {
+      "t212_ticker": "LLY_US_EQ",
+      "yahoo_symbol": "LLY",
+      "name": "Eli Lilly and Co.",
+      "move_threshold_pct": 2.5,
+      "notes": "Healthcare / GLP-1 leader"
+    },
+    {
+      "t212_ticker": "AZN_L_EQ",
+      "yahoo_symbol": "AZN.L",
+      "name": "AstraZeneca plc (LSE)",
+      "move_threshold_pct": 2.0,
+      "notes": "UK pharma"
+    },
+    {
+      "t212_ticker": "NVO_US_EQ",
+      "yahoo_symbol": "NVO",
+      "name": "Novo Nordisk A/S (ADR)",
+      "move_threshold_pct": 2.5,
+      "notes": "European healthcare / GLP-1"
+    },
+    {
+      "t212_ticker": "BA_L_EQ",
+      "yahoo_symbol": "BA.L",
+      "name": "BAE Systems plc (LSE)",
+      "move_threshold_pct": 2.5,
+      "notes": "UK defense & aerospace"
+    },
+    {
+      "t212_ticker": "LMT_US_EQ",
+      "yahoo_symbol": "LMT",
+      "name": "Lockheed Martin Corp.",
+      "move_threshold_pct": 2.0,
+      "notes": "US defense & aerospace"
+    },
+    {
+      "t212_ticker": "COST_US_EQ",
+      "yahoo_symbol": "COST",
+      "name": "Costco Wholesale Corp.",
+      "move_threshold_pct": 2.0,
+      "notes": "Consumer staples / defensive retail"
+    },
+    {
+      "t212_ticker": "PG_US_EQ",
+      "yahoo_symbol": "PG",
+      "name": "Procter & Gamble Co.",
+      "move_threshold_pct": 1.5,
+      "notes": "Consumer staples"
+    },
+    {
+      "t212_ticker": "IGLT_L_EQ",
+      "yahoo_symbol": "IGLT.L",
+      "name": "iShares Core UK Gilts",
+      "move_threshold_pct": 1.5,
+      "notes": "UK government bonds / defensive hedge (LSE GBP)"
     }
   ]
 }
