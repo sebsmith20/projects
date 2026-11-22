@@ -1,11 +1,25 @@
 {
   "tickers": [
     {
+      "t212_ticker": null,
+      "yahoo_symbol": "^GSPC",
+      "name": "S&P 500 Index (SPX)",
+      "move_threshold_pct": 1.5,
+      "notes": "Broad US market benchmark (read-only index)"
+    },
+    {
+      "t212_ticker": "SPY_US_EQ",
+      "yahoo_symbol": "SPY",
+      "name": "SPDR S&P 500 ETF Trust",
+      "move_threshold_pct": 1.5,
+      "notes": "Tradable S&P 500 ETF"
+    },
+    {
       "t212_ticker": "AAPL_US_EQ",
       "yahoo_symbol": "AAPL",
       "name": "Apple Inc.",
       "move_threshold_pct": 2.0,
-      "notes": "Core mega-cap tech benchmark"
+      "notes": "Core mega-cap tech"
     },
     {
       "t212_ticker": "MSFT_US_EQ",
@@ -19,14 +33,301 @@
       "yahoo_symbol": "NVDA",
       "name": "NVIDIA Corp.",
       "move_threshold_pct": 3.0,
-      "notes": "Higher volatility semiconductor leader"
+      "notes": "AI & semiconductor leader"
     },
     {
-      "t212_ticker": "SPY_US_EQ",
-      "yahoo_symbol": "SPY",
-      "name": "SPDR S&P 500 ETF Trust",
+      "t212_ticker": "AMD_US_EQ",
+      "yahoo_symbol": "AMD",
+      "name": "Advanced Micro Devices",
+      "move_threshold_pct": 3.0,
+      "notes": "Semiconductors"
+    },
+    {
+      "t212_ticker": "ORCL_US_EQ",
+      "yahoo_symbol": "ORCL",
+      "name": "Oracle Corp.",
+      "move_threshold_pct": 2.5,
+      "notes": "Cloud & enterprise software"
+    },
+    {
+      "t212_ticker": "PLTR_US_EQ",
+      "yahoo_symbol": "PLTR",
+      "name": "Palantir Technologies",
+      "move_threshold_pct": 3.5,
+      "notes": "AI software"
+    },
+    {
+      "t212_ticker": "AVGO_US_EQ",
+      "yahoo_symbol": "AVGO",
+      "name": "Broadcom Inc.",
+      "move_threshold_pct": 2.5,
+      "notes": "Semiconductors & infrastructure software"
+    },
+    {
+      "t212_ticker": "META_US_EQ",
+      "yahoo_symbol": "META",
+      "name": "Meta Platforms",
+      "move_threshold_pct": 2.5,
+      "notes": "Mega-cap tech / AI"
+    },
+    {
+      "t212_ticker": "IONQ_US_EQ",
+      "yahoo_symbol": "IONQ",
+      "name": "IonQ Inc.",
+      "move_threshold_pct": 4.0,
+      "notes": "Quantum computing"
+    },
+    {
+      "t212_ticker": "IBM_US_EQ",
+      "yahoo_symbol": "IBM",
+      "name": "International Business Machines",
+      "move_threshold_pct": 2.0,
+      "notes": "Enterprise & quantum"
+    },
+    {
+      "t212_ticker": "QBTS_US_EQ",
+      "yahoo_symbol": "QBTS",
+      "name": "D-Wave Quantum",
+      "move_threshold_pct": 4.0,
+      "notes": "Quantum computing"
+    },
+    {
+      "t212_ticker": "GOOGL_US_EQ",
+      "yahoo_symbol": "GOOGL",
+      "name": "Alphabet Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Mega-cap tech / AI"
+    },
+    {
+      "t212_ticker": "INTC_US_EQ",
+      "yahoo_symbol": "INTC",
+      "name": "Intel Corp.",
+      "move_threshold_pct": 3.0,
+      "notes": "Semiconductors"
+    },
+    {
+      "t212_ticker": "CEG_US_EQ",
+      "yahoo_symbol": "CEG",
+      "name": "Constellation Energy",
+      "move_threshold_pct": 3.0,
+      "notes": "Nuclear / AI power"
+    },
+    {
+      "t212_ticker": "GEV_US_EQ",
+      "yahoo_symbol": "GEV",
+      "name": "GE Vernova",
+      "move_threshold_pct": 3.0,
+      "notes": "Power & grid infrastructure"
+    },
+    {
+      "t212_ticker": "VST_US_EQ",
+      "yahoo_symbol": "VST",
+      "name": "Vistra Corp.",
+      "move_threshold_pct": 3.0,
+      "notes": "Nuclear / AI power"
+    },
+    {
+      "t212_ticker": "OKLO_US_EQ",
+      "yahoo_symbol": "OKLO",
+      "name": "Oklo Inc.",
+      "move_threshold_pct": 4.0,
+      "notes": "Small modular nuclear reactors"
+    },
+    {
+      "t212_ticker": "SMR_US_EQ",
+      "yahoo_symbol": "SMR",
+      "name": "NuScale Power",
+      "move_threshold_pct": 4.0,
+      "notes": "Small modular nuclear reactors"
+    },
+    {
+      "t212_ticker": "SMSN_L_EQ",
+      "yahoo_symbol": "SMSN.L",
+      "name": "Samsung Electronics (LSE GDR)",
+      "move_threshold_pct": 3.0,
+      "notes": "Semiconductors / memory (London GDR)"
+    },
+    {
+      "t212_ticker": "MU_US_EQ",
+      "yahoo_symbol": "MU",
+      "name": "Micron Technology",
+      "move_threshold_pct": 3.0,
+      "notes": "Memory / HBM semiconductors"
+    },
+    {
+      "t212_ticker": "TSM_US_EQ",
+      "yahoo_symbol": "TSM",
+      "name": "Taiwan Semiconductor (TSMC)",
+      "move_threshold_pct": 2.5,
+      "notes": "Foundry semiconductors"
+    },
+    {
+      "t212_ticker": "ASML_US_EQ",
+      "yahoo_symbol": "ASML",
+      "name": "ASML Holding",
+      "move_threshold_pct": 2.5,
+      "notes": "Semiconductor lithography"
+    },
+    {
+      "t212_ticker": "SNDK_US_EQ",
+      "yahoo_symbol": "SNDK",
+      "name": "SanDisk Corp.",
+      "move_threshold_pct": 3.5,
+      "notes": "Flash storage / memory"
+    },
+    {
+      "t212_ticker": "WDC_US_EQ",
+      "yahoo_symbol": "WDC",
+      "name": "Western Digital Corp.",
+      "move_threshold_pct": 3.0,
+      "notes": "Storage / HDD"
+    },
+    {
+      "t212_ticker": "SHEL_US_EQ",
+      "yahoo_symbol": "SHEL",
+      "name": "Shell plc (ADR)",
+      "move_threshold_pct": 2.0,
+      "notes": "Energy"
+    },
+    {
+      "t212_ticker": "BP_US_EQ",
+      "yahoo_symbol": "BP",
+      "name": "BP plc (ADR)",
+      "move_threshold_pct": 2.0,
+      "notes": "Energy"
+    },
+    {
+      "t212_ticker": "BARC_L_EQ",
+      "yahoo_symbol": "BARC.L",
+      "name": "Barclays plc (LSE)",
+      "move_threshold_pct": 2.5,
+      "notes": "UK banking"
+    },
+    {
+      "t212_ticker": "HSBC_US_EQ",
+      "yahoo_symbol": "HSBC",
+      "name": "HSBC Holdings (ADR)",
+      "move_threshold_pct": 2.0,
+      "notes": "Global banking"
+    },
+    {
+      "t212_ticker": "GS_US_EQ",
+      "yahoo_symbol": "GS",
+      "name": "Goldman Sachs Group",
+      "move_threshold_pct": 2.5,
+      "notes": "Investment banking"
+    },
+    {
+      "t212_ticker": "JPM_US_EQ",
+      "yahoo_symbol": "JPM",
+      "name": "JPMorgan Chase & Co.",
+      "move_threshold_pct": 2.0,
+      "notes": "Banking"
+    },
+    {
+      "t212_ticker": "AMZN_US_EQ",
+      "yahoo_symbol": "AMZN",
+      "name": "Amazon.com Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Cloud & e-commerce"
+    },
+    {
+      "t212_ticker": "NUCG_L_EQ",
+      "yahoo_symbol": "NUCG.L",
+      "name": "VanEck Uranium and Nuclear Technologies (Acc)",
+      "move_threshold_pct": 2.5,
+      "notes": "Nuclear & uranium ETF (LSE GBP)"
+    },
+    {
+      "t212_ticker": "JEDG_L_EQ",
+      "yahoo_symbol": "JEDG.L",
+      "name": "VanEck Space Innovators (Acc)",
+      "move_threshold_pct": 3.0,
+      "notes": "Space ETF (LSE GBP)"
+    },
+    {
+      "t212_ticker": "VUAG_L_EQ",
+      "yahoo_symbol": "VUAG.L",
+      "name": "Vanguard S&P 500 (Acc)",
       "move_threshold_pct": 1.5,
-      "notes": "Broad US market gauge"
+      "notes": "Core S&P 500 ETF (LSE GBP)"
+    },
+    {
+      "t212_ticker": "SGLN_L_EQ",
+      "yahoo_symbol": "SGLN.L",
+      "name": "iShares Physical Gold ETC",
+      "move_threshold_pct": 2.0,
+      "notes": "Physical gold ETC (LSE GBX)"
+    },
+    {
+      "t212_ticker": "VWRP_L_EQ",
+      "yahoo_symbol": "VWRP.L",
+      "name": "Vanguard FTSE All-World (Acc)",
+      "move_threshold_pct": 1.5,
+      "notes": "Global equity benchmark (LSE GBP)"
+    },
+    {
+      "t212_ticker": "LLY_US_EQ",
+      "yahoo_symbol": "LLY",
+      "name": "Eli Lilly and Co.",
+      "move_threshold_pct": 2.5,
+      "notes": "Healthcare / GLP-1 leader"
+    },
+    {
+      "t212_ticker": "AZN_L_EQ",
+      "yahoo_symbol": "AZN.L",
+      "name": "AstraZeneca plc (LSE)",
+      "move_threshold_pct": 2.0,
+      "notes": "UK pharma"
+    },
+    {
+      "t212_ticker": "NVO_US_EQ",
+      "yahoo_symbol": "NVO",
+      "name": "Novo Nordisk A/S (ADR)",
+      "move_threshold_pct": 2.5,
+      "notes": "European healthcare / GLP-1"
+    },
+    {
+      "t212_ticker": "BA_L_EQ",
+      "yahoo_symbol": "BA.L",
+      "name": "BAE Systems plc (LSE)",
+      "move_threshold_pct": 2.5,
+      "notes": "UK defense & aerospace"
+    },
+    {
+      "t212_ticker": "LMT_US_EQ",
+      "yahoo_symbol": "LMT",
+      "name": "Lockheed Martin Corp.",
+      "move_threshold_pct": 2.0,
+      "notes": "US defense & aerospace"
+    },
+    {
+      "t212_ticker": "COST_US_EQ",
+      "yahoo_symbol": "COST",
+      "name": "Costco Wholesale Corp.",
+      "move_threshold_pct": 2.0,
+      "notes": "Consumer staples / defensive retail"
+    },
+    {
+      "t212_ticker": "PG_US_EQ",
+      "yahoo_symbol": "PG",
+      "name": "Procter & Gamble Co.",
+      "move_threshold_pct": 1.5,
+      "notes": "Consumer staples"
+    },
+    {
+      "t212_ticker": "V_US_EQ",
+      "yahoo_symbol": "V",
+      "name": "Visa Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Global payment network tollbooth"
+    },
+    {
+      "t212_ticker": "MA_US_EQ",
+      "yahoo_symbol": "MA",
+      "name": "Mastercard Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Global payment network tollbooth"
     }
   ]
 }

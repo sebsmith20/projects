@@ -25,37 +25,53 @@ def evaluate_trigger(
     last_briefing_date: str | None,
     settings: Settings,
     now: datetime | None = None,
+    todays_triggers: list[str] | None = None,
 ) -> str | None:
     """Return a trigger reason string if an LLM analysis should run, else None."""
     reasons: list[str] = []
 
-    for snap in market_snapshots:
-        sym = snap["yahoo_symbol"]
-        chg = snap.get("change_pct")
-        thresh = float(snap.get("move_threshold_pct", settings.price_move_threshold_pct))
-        if chg is not None and abs(chg) >= thresh:
-            reasons.append(f"{sym} moved {chg:+.2f}% (threshold +/-{thresh:.1f}%)")
-        if snap.get("catalysts"):
-            reasons.append(f"{sym} news catalyst: {snap['catalysts'][0][:80]}")
-        tech = snap.get("technicals") or {}
-        rsi = tech.get("rsi_14")
-        if rsi is not None and (rsi <= 30 or rsi >= 70):
-            state = "oversold" if rsi <= 30 else "overbought"
-            reasons.append(f"{sym} RSI-14={rsi:.1f} ({state})")
-        vol_ratio = tech.get("volume_ratio_20d")
-        if vol_ratio is not None and vol_ratio >= 2.0:
-            reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
+    if not settings.daily_summary_only:
+        for snap in market_snapshots:
+            sym = snap["yahoo_symbol"]
+            chg = snap.get("change_pct")
+            thresh = float(snap.get("move_threshold_pct", settings.price_move_threshold_pct))
+            if chg is not None and abs(chg) >= thresh:
+                reasons.append(f"{sym} moved {chg:+.2f}% (threshold +/-{thresh:.1f}%)")
+            if snap.get("catalysts"):
+                reasons.append(f"{sym} news catalyst: {snap['catalysts'][0][:80]}")
+            tech = snap.get("technicals") or {}
+            rsi = tech.get("rsi_14")
+            if rsi is not None and (rsi <= 30 or rsi >= 70):
+                state = "oversold" if rsi <= 30 else "overbought"
+                reasons.append(f"{sym} RSI-14={rsi:.1f} ({state})")
+            vol_ratio = tech.get("volume_ratio_20d")
+            if vol_ratio is not None and vol_ratio >= 2.0:
+                reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
 
     tz = ZoneInfo(settings.market_timezone)
     local_now = now.astimezone(tz) if now else datetime.now(tz)
     today_str = local_now.strftime("%Y-%m-%d")
 
-    past_daily_time = (local_now.hour, local_now.minute) >= (
-        settings.daily_summary_hour,
-        settings.daily_summary_minute,
-    )
-    if local_now.weekday() < 5 and past_daily_time and last_briefing_date != today_str:
-        reasons.append(f"Daily summary schedule ({today_str})")
+    if local_now.weekday() < 5:
+        if todays_triggers is not None and settings.scheduled_briefing_times:
+            # Check latest passed slot first so a late start doesn't fire an old morning slot
+            for slot in sorted(settings.scheduled_briefing_times, reverse=True):
+                try:
+                    sh, sm = (int(x) for x in slot.split(":", 1))
+                except ValueError:
+                    continue
+                if (local_now.hour, local_now.minute) >= (sh, sm):
+                    slot_tag = f"[slot {slot}]"
+                    if not any(slot_tag in t for t in todays_triggers):
+                        reasons.append(f"Scheduled briefing {slot_tag} ({today_str})")
+                    break
+        else:
+            past_daily_time = (local_now.hour, local_now.minute) >= (
+                settings.daily_summary_hour,
+                settings.daily_summary_minute,
+            )
+            if past_daily_time and last_briefing_date != today_str:
+                reasons.append(f"Daily summary schedule ({today_str})")
 
     if not reasons:
         return None

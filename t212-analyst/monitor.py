@@ -72,10 +72,17 @@ def run_cycle(
     logger.info("Saved %d external market/news snapshots.", len(market_snapshots))
 
     last_date = storage.get_last_briefing_date()
+    today_utc_prefix = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
+    todays_triggers = storage.get_todays_briefing_triggers(today_utc_prefix)
     trigger_reason = (
         "Manual force-analysis run"
         if force_analysis
-        else evaluate_trigger(market_snapshots, last_date, settings)
+        else evaluate_trigger(
+            market_snapshots,
+            last_date,
+            settings,
+            todays_triggers=todays_triggers,
+        )
     )
 
     if not trigger_reason:

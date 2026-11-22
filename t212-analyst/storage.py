@@ -153,6 +153,14 @@ class Storage:
                 return None
             return str(row["timestamp"])[:10]
 
+    def get_todays_briefing_triggers(self, date_prefix: str) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT trigger_reason FROM briefings WHERE timestamp LIKE ?",
+                (f"{date_prefix}%",),
+            ).fetchall()
+            return [str(r["trigger_reason"]) for r in rows]
+
     def save_briefing_and_proposals(
         self,
         trigger_reason: str,
