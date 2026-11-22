@@ -29,22 +29,23 @@ def evaluate_trigger(
     """Return a trigger reason string if an LLM analysis should run, else None."""
     reasons: list[str] = []
 
-    for snap in market_snapshots:
-        sym = snap["yahoo_symbol"]
-        chg = snap.get("change_pct")
-        thresh = float(snap.get("move_threshold_pct", settings.price_move_threshold_pct))
-        if chg is not None and abs(chg) >= thresh:
-            reasons.append(f"{sym} moved {chg:+.2f}% (threshold +/-{thresh:.1f}%)")
-        if snap.get("catalysts"):
-            reasons.append(f"{sym} news catalyst: {snap['catalysts'][0][:80]}")
-        tech = snap.get("technicals") or {}
-        rsi = tech.get("rsi_14")
-        if rsi is not None and (rsi <= 30 or rsi >= 70):
-            state = "oversold" if rsi <= 30 else "overbought"
-            reasons.append(f"{sym} RSI-14={rsi:.1f} ({state})")
-        vol_ratio = tech.get("volume_ratio_20d")
-        if vol_ratio is not None and vol_ratio >= 2.0:
-            reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
+    if not settings.daily_summary_only:
+        for snap in market_snapshots:
+            sym = snap["yahoo_symbol"]
+            chg = snap.get("change_pct")
+            thresh = float(snap.get("move_threshold_pct", settings.price_move_threshold_pct))
+            if chg is not None and abs(chg) >= thresh:
+                reasons.append(f"{sym} moved {chg:+.2f}% (threshold +/-{thresh:.1f}%)")
+            if snap.get("catalysts"):
+                reasons.append(f"{sym} news catalyst: {snap['catalysts'][0][:80]}")
+            tech = snap.get("technicals") or {}
+            rsi = tech.get("rsi_14")
+            if rsi is not None and (rsi <= 30 or rsi >= 70):
+                state = "oversold" if rsi <= 30 else "overbought"
+                reasons.append(f"{sym} RSI-14={rsi:.1f} ({state})")
+            vol_ratio = tech.get("volume_ratio_20d")
+            if vol_ratio is not None and vol_ratio >= 2.0:
+                reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
 
     tz = ZoneInfo(settings.market_timezone)
     local_now = now.astimezone(tz) if now else datetime.now(tz)

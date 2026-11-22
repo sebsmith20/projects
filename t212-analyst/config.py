@@ -33,6 +33,7 @@ class Settings:
     market_close_minute: int
 
     price_move_threshold_pct: float
+    daily_summary_only: bool
     daily_summary_hour: int
     daily_summary_minute: int
 
@@ -81,6 +82,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         market_close_hour=int(os.getenv("MARKET_CLOSE_HOUR", "16")),
         market_close_minute=int(os.getenv("MARKET_CLOSE_MINUTE", "0")),
         price_move_threshold_pct=float(os.getenv("PRICE_MOVE_THRESHOLD_PCT", "2.0")),
+        daily_summary_only=_parse_bool(os.getenv("DAILY_SUMMARY_ONLY"), default=False),
         daily_summary_hour=int(os.getenv("DAILY_SUMMARY_HOUR", "16")),
         daily_summary_minute=int(os.getenv("DAILY_SUMMARY_MINUTE", "15")),
         llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
