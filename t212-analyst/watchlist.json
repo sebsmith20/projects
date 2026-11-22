@@ -188,6 +188,48 @@
       "name": "Shell plc (ADR)",
       "move_threshold_pct": 2.0,
       "notes": "Energy"
+    },
+    {
+      "t212_ticker": "BP_US_EQ",
+      "yahoo_symbol": "BP",
+      "name": "BP plc (ADR)",
+      "move_threshold_pct": 2.0,
+      "notes": "Energy"
+    },
+    {
+      "t212_ticker": "BARC_L_EQ",
+      "yahoo_symbol": "BARC.L",
+      "name": "Barclays plc (LSE)",
+      "move_threshold_pct": 2.5,
+      "notes": "UK banking"
+    },
+    {
+      "t212_ticker": "HSBC_US_EQ",
+      "yahoo_symbol": "HSBC",
+      "name": "HSBC Holdings (ADR)",
+      "move_threshold_pct": 2.0,
+      "notes": "Global banking"
+    },
+    {
+      "t212_ticker": "GS_US_EQ",
+      "yahoo_symbol": "GS",
+      "name": "Goldman Sachs Group",
+      "move_threshold_pct": 2.5,
+      "notes": "Investment banking"
+    },
+    {
+      "t212_ticker": "JPM_US_EQ",
+      "yahoo_symbol": "JPM",
+      "name": "JPMorgan Chase & Co.",
+      "move_threshold_pct": 2.0,
+      "notes": "Banking"
+    },
+    {
+      "t212_ticker": "AMZN_US_EQ",
+      "yahoo_symbol": "AMZN",
+      "name": "Amazon.com Inc.",
+      "move_threshold_pct": 2.0,
+      "notes": "Cloud & e-commerce"
     }
   ]
 }
