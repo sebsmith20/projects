@@ -1,8 +1,35 @@
 # t212-analyst
 
-A human-in-the-loop market analysis and trade assistant for **Trading 212** (`demo` and `live` Invest / Stocks ISA accounts).
+A 24/7 human-in-the-loop market analysis and trade assistant for **Trading 212** (`demo` and `live` Invest / Stocks ISA accounts).
 
-> **Compliance & Safety First:** `monitor.py` is strictly read-only on Trading 212 and **never** places orders automatically. Every trade idea is saved as a `PENDING` proposal in SQLite and requires your explicit approval in `executor.py` before any order is submitted.
+> **Compliance & Safety First:** `monitor.py` is strictly read-only on Trading 212 and **never** places orders automatically. Every trade idea is saved as a `PENDING` proposal in SQLite and requires your explicit approval (via `executor.py` CLI or Telegram `/approve <id>`) before any order is submitted.
+
+---
+
+## How It Works Day-to-Day
+
+1. **Always-On Services (Oracle Cloud VM / Linux VPS):**
+   - `t212-monitor.service` — wakes up every **15 minutes** during US market hours (`09:30–16:00 ET`, Mon–Fri).
+   - `t212-telegram-bot.service` — stays connected to Telegram 24/7, listening **only** to your authorized `TELEGRAM_CHAT_ID`.
+2. **Every 15 Minutes (Read-Only):**
+   - Fetches your open Trading 212 positions, average prices, P&L, and free cash (rate-limited: max `1 req/s` positions, `1 req/5s` cash).
+   - Pulls 1-year daily prices & Yahoo Finance RSS news for your held tickers + `watchlist.json` (100% pure-Python HTTP, no `pandas`/`numpy` DLLs required).
+   - Computes technical indicators: **RSI-14, SMA-20/50/200, 52-week high/low, 5d/20d momentum, volume ratio (vs 20d avg), and 20d annualized volatility**.
+   - Saves snapshots to `data/t212_analyst.db`.
+3. **Cost-Controlled AI Analysis (`analyst.py`):**
+   - Only calls the LLM (Groq, Gemini, or any OpenAI-compatible API) when at least one trigger fires:
+     - Price move `>= ±threshold%` (default `±2%`, customizable per ticker in `watchlist.json`)
+     - Major news catalyst keyword in headlines
+     - **RSI-14** extreme (`<= 30` oversold or `>= 70` overbought) or volume spike (`>= 2.0x` 20d avg)
+     - Daily EOD summary schedule (`16:15 ET`)
+   - Fetches macro regime context (**VIX**, **US 10Y Yield**, **DXY**, **GBP/USD**, **Gold**, **WTI Crude Oil**) and sends a structured briefing to Telegram.
+4. **Human-in-the-Loop Execution (`telegram_bot.py` & `executor.py`):**
+   - Actionable `BUY`/`SELL` ideas are saved as `PENDING` with a unique `idempotency_key`.
+   - From Telegram on your phone:
+     - `/list` — view `PENDING` proposals
+     - `/approve <id>` — atomically locks the proposal, checks open orders for duplicates, and submits `/equity/orders/market` or `/equity/orders/limit` (using negative quantities for `SELL` orders)
+     - `/reject <id>` — dismisses a proposal
+     - `/status` — shows recent orders
 
 ---
 
@@ -10,141 +37,110 @@ A human-in-the-loop market analysis and trade assistant for **Trading 212** (`de
 
 ```text
 t212-analyst/
-├── .env.example          # Environment variables template
+├── .env.example                    # Environment variables template
 ├── .gitignore
-├── requirements.txt      # Python dependencies
-├── watchlist.json        # Customizable watchlist & T212<->Yahoo ticker mapping
-├── config.py             # Env/config loader & validation
-├── t212_client.py        # Trading 212 API v0 client (Basic Auth + rate limits)
-├── market_data.py        # External quotes & news via yfinance + RSS
-├── analyst.py            # Threshold gate + LLM briefing & trade idea generator
-├── notifier.py           # Console, Discord, and Telegram notifications
-├── storage.py            # SQLite persistence + atomic idempotency locks
-├── monitor.py            # Continuous monitor daemon (--once supported)
-├── executor.py           # Human-in-the-loop approval & order execution CLI
+├── requirements.txt                # Pure-Python dependencies
+├── watchlist.json                  # Customizable watchlist & T212<->Yahoo ticker mapping
+├── config.py                       # Env/config loader & validation
+├── t212_client.py                  # Trading 212 API v0 client (Basic Auth + rate limits)
+├── market_data.py                  # Pure-Python Yahoo chart/RSS, technicals & macro context
+├── analyst.py                      # Threshold gate + LLM briefing & trade idea generator
+├── notifier.py                     # Console, Discord, and Telegram notifications
+├── storage.py                      # SQLite persistence + atomic idempotency locks
+├── monitor.py                      # Continuous monitor daemon (--once supported)
+├── executor.py                     # CLI human-in-the-loop approval & order execution
+├── telegram_bot.py                 # 24/7 Telegram bot for phone /approve & /reject
 ├── deploy/
-│   ├── t212-monitor.service
-│   └── crontab.example
+│   ├── t212-monitor.service        # systemd unit for monitor.py
+│   ├── t212-telegram-bot.service   # systemd unit for telegram_bot.py
+│   ├── crontab.example             # Linux cron alternative
+│   └── Register-T212MonitorTask.ps1# Windows Task Scheduler helper
 └── tests/
-    └── test_t212_analyst.py
+    └── test_t212_analyst.py        # Unit tests (mocked API)
 ```
 
 ---
 
-## 1. Quickstart: Testing in `"demo"` Mode First
+## 1. Quickstart & Testing in `"demo"` Mode
 
-### Step 1: Create a Demo API Key in Trading 212
+### Step 1: Generate a Demo API Key in Trading 212
 1. Log into the **Trading 212 Web App** and switch to your **Practice (Demo)** account.
 2. Go to **Settings -> API** and generate a new API key pair.
 3. Copy both the **API Key** and **API Secret** immediately (the secret is only shown once).
 
 ### Step 2: Install Dependencies & Configure `.env`
 
-**Windows (PowerShell):**
-```powershell
-cd t212-analyst
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-Copy-Item .env.example .env
-```
-
-**Linux / macOS:**
+**Linux / Oracle VM:**
 ```bash
-cd t212-analyst
+cd /opt/t212-analyst
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
+.venv/bin/pip install --upgrade pip setuptools wheel
+.venv/bin/pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
+**Windows (Git Bash):**
+```bash
+cd t212-analyst
+python -m venv .venv
+source .venv/Scripts/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Edit `.env`:
 ```dotenv
 T212_API_KEY=your_demo_api_key
 T212_API_SECRET=your_demo_api_secret
 T212_ENV=demo
-```
-*(Optional: add `LLM_API_KEY` for AI-powered briefings; if left blank, `analyst.py` runs in deterministic fallback mode so you can still test the full pipeline.)*
 
-### Step 3: Run a Single Monitor Cycle in Demo Mode
-Run one cycle ignoring market hours and forcing an analysis briefing so you can verify connectivity, SQLite storage, and notifications immediately:
+# Free-tier Groq example (or OpenAI / Gemini / OpenRouter):
+LLM_API_KEY=your_groq_api_key
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_MODEL=llama-3.3-70b-versatile
 
-```powershell
-python monitor.py --once --ignore-market-hours --force-analysis
-```
-
-You should see:
-- Your demo open positions and free cash logged and saved to `data\t212_analyst.db`.
-- External quotes & news pulled for your held tickers + `watchlist.json`.
-- A formatted briefing printed to the console (and sent to Discord/Telegram if configured).
-
-### Step 4: Review & Approve/Reject Proposals
-List any generated proposals:
-```powershell
-python executor.py list
+# Optional Telegram alerts & phone approvals:
+TELEGRAM_BOT_TOKEN=your_botfather_token
+TELEGRAM_CHAT_ID=your_numeric_chat_id
 ```
 
-Launch the interactive approval shell:
-```powershell
-python executor.py interactive
-```
-Or approve/reject a specific proposal ID directly:
-```powershell
-python executor.py approve 1
-python executor.py reject 2
-```
-
-When approving, `executor.py`:
-1. Requires you to type `APPROVE <id>` (unless `--yes` is passed).
-2. Atomically locks the proposal (`PENDING` -> `APPROVED_IN_FLIGHT`) in SQLite.
-3. Checks `/equity/orders` for duplicate open orders.
-4. Submits `/equity/orders/market` or `/equity/orders/limit` (using **negative quantity** for `SELL` orders).
-5. Never auto-retries a timed-out order POST, preventing duplicate submissions.
-
----
-
-## 2. API Compliance & Safeguards
-
-- **No unattended trading:** `monitor.py` has no order-execution code path.
-- **Rate limits enforced in `t212_client.py`:**
-  - `GET /equity/positions`: max 1 request / 1 second
-  - `GET /equity/account/cash`: max 1 request / 5 seconds
-  - `GET /equity/orders`: max 1 request / 5 seconds
-  - `429` responses back off automatically on `GET` requests.
-- **External data offloading:** Intraday quotes and news are pulled from `yfinance` and Yahoo Finance RSS rather than polling Trading 212.
-- **Cost control:** `analyst.py` only calls the LLM when a price move exceeds `PRICE_MOVE_THRESHOLD_PCT`, a news catalyst is detected, or the daily summary schedule is reached.
-
----
-
-## 3. Deploying Continuously in the Background
-
-### Windows: Task Scheduler (Recommended on Windows)
-Run the included PowerShell helper to register a scheduled task that runs `monitor.py --once` every 15 minutes (automatically respecting `MARKET_HOURS_ONLY=true`):
-```powershell
-cd t212-analyst
-powershell -ExecutionPolicy Bypass -File .\deploy\Register-T212MonitorTask.ps1
-```
-To run continuously in a terminal window instead:
-```powershell
-.\.venv\Scripts\python.exe monitor.py
-```
-
-### Linux / VPS: `systemd`
-1. Copy the project to `/opt/t212-analyst` (or update paths in `deploy/t212-monitor.service`).
-2. Update `User=` and `Group=` in `deploy/t212-monitor.service`.
-3. Install and start the service:
-   ```bash
-   sudo cp deploy/t212-monitor.service /etc/systemd/system/t212-monitor.service
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now t212-monitor
-   sudo journalctl -u t212-monitor -f
-   ```
-
-### Linux / VPS: `cron`
-Use `deploy/crontab.example` to run `monitor.py --once` every 15 minutes on weekdays:
+### Step 3: Run a Single Demo Cycle
 ```bash
-crontab -e
+.venv/bin/python monitor.py --once --ignore-market-hours --force-analysis
 ```
-Paste the line from `deploy/crontab.example` adjusted to your installation path.
+
+### Step 4: Review & Approve Proposals
+**Via CLI:**
+```bash
+python executor.py list
+python executor.py interactive
+python executor.py approve 1
+```
+**Via Telegram (Phone):**
+Run `python telegram_bot.py` and message your bot `/list`, `/approve <id>`, `/reject <id>`, or `/status`.
+
+---
+
+## 2. 24/7 Deployment on a Linux VM (e.g. Oracle Cloud Always Free)
+
+```bash
+cd /opt/t212-analyst
+sed -i "s/YOUR_LINUX_USER/$USER/g" deploy/t212-monitor.service deploy/t212-telegram-bot.service
+
+sudo cp deploy/t212-monitor.service /etc/systemd/system/
+sudo cp deploy/t212-telegram-bot.service /etc/systemd/system/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now t212-monitor t212-telegram-bot
+sudo systemctl status t212-monitor t212-telegram-bot
+```
+
+View live logs anytime:
+```bash
+sudo journalctl -u t212-monitor -u t212-telegram-bot -f
+```
+
+When you are ready to switch from `demo` to `live`, update `T212_API_KEY`, `T212_API_SECRET`, and `T212_ENV=live` in `/opt/t212-analyst/.env` and run:
+```bash
+sudo systemctl restart t212-monitor t212-telegram-bot
+```
