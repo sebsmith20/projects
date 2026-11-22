@@ -16,7 +16,7 @@ except ImportError:
 
 from analyst import evaluate_trigger, generate_briefing
 from config import Settings, configure_logging, load_settings
-from market_data import collect_market_universe, load_watchlist
+from market_data import collect_market_universe, fetch_macro_context, load_watchlist
 from notifier import send_notifications
 from storage import Storage
 from t212_client import Trading212Client
