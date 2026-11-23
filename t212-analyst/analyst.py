@@ -154,10 +154,10 @@ def _build_llm_prompt(
         '  "portfolio_pnl_impact": "concise 1-2 sentence summary including macro backdrop",\n'
         '  "key_news_catalysts": ["top 1-5 highest-impact catalysts only, ranked by importance"],\n'
         '  "risk_flags": ["top 1-5 most important risks only (macro/technical/concentration), ranked by severity"],\n'
-        '  "trade_ideas": [\n'
+        "  \"trade_ideas\": [\n"
         "    {\n"
-        '      "t212_ticker": "AAPL_US_EQ",\n'
-        '      "yahoo_symbol": "AAPL",\n'
+        '      "t212_ticker": "<exact t212 code from DATA>",\n'
+        '      "yahoo_symbol": "<exact sym from DATA>",\n'
         '      "action": "BUY" | "SELL" | "HOLD",\n'
         '      "quantity": 1.0,\n'
         '      "order_type": "MARKET" | "LIMIT",\n'
@@ -167,9 +167,10 @@ def _build_llm_prompt(
         "  ]\n"
         "}\n"
         "Rules:\n"
+        "- Scan ALL focus_tickers, positions, and other_watchlist (do NOT default to a single stock).\n"
+        "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators (RSI-14, SMA-50/200, 52w high, volume ratio). Do NOT artificially limit the number of trade ideas.\n"
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
-        "- Prefer HOLD unless macro + technicals + catalysts align.\n"
         "- For HOLD ideas, set quantity to 0.\n"
         "- Return at most 5 items in key_news_catalysts and at most 5 items in risk_flags, dynamically ranked by importance.\n\n"
         f"DATA:\n{json.dumps(context, separators=(',', ':'))}"
@@ -338,7 +339,7 @@ def generate_briefing(
                 },
                 json={
                     "model": settings.llm_model,
-                    "temperature": 0.2,
+                    "temperature": 0.0,
                     "response_format": {"type": "json_object"},
                     "messages": [
                         {"role": "system", "content": "You are a concise, risk-aware equity analyst."},

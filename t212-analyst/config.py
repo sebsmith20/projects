@@ -86,7 +86,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         daily_summary_only=_parse_bool(os.getenv("DAILY_SUMMARY_ONLY"), default=False),
         scheduled_briefing_times=tuple(
             t.strip()
-            for t in os.getenv("SCHEDULED_BRIEFING_TIMES", "09:45,15:45").split(",")
+            for t in os.getenv("SCHEDULED_BRIEFING_TIMES", "10:00,15:30").split(",")
             if t.strip()
         ),
         daily_summary_hour=int(os.getenv("DAILY_SUMMARY_HOUR", "16")),

@@ -17,6 +17,7 @@ def format_notification_message(
     summary_markdown: str,
     proposal_ids: Sequence[int],
     env: str,
+    proposals: Sequence[dict[str, object]] | None = None,
 ) -> str:
     lines = [
         f"=== T212 Market Briefing ({env.upper()}) ===",
@@ -24,13 +25,23 @@ def format_notification_message(
         "",
         summary_markdown.strip(),
     ]
-    if proposal_ids:
+    if proposals:
+        lines.append("")
+        lines.append("Pending Trade Proposals (tap or reply to approve):")
+        for p in proposals:
+            pid = p.get("daily_num") or p["id"]
+            action = p["action"]
+            qty = p["quantity"]
+            sym = p.get("yahoo_symbol") or p["t212_ticker"]
+            otype = p["order_type"]
+            lines.append(
+                f"  - #{pid}: {action} {qty} {sym} ({otype}) -> /approve {pid} | /reject {pid}"
+            )
+    elif proposal_ids:
         lines.append("")
         lines.append("Pending Trade Proposals (require explicit human approval):")
         for pid in proposal_ids:
-            lines.append(f"  - CLI: python executor.py approve {pid}")
-            lines.append(f"  - Telegram: /approve {pid}  |  /reject {pid}")
-        lines.append("  - Or run: python executor.py interactive")
+            lines.append(f"  - #{pid}: /approve {pid}  |  /reject {pid}  |  CLI: python executor.py approve {pid}")
     return "\n".join(lines)
 
 
@@ -39,12 +50,14 @@ def send_notifications(
     trigger_reason: str,
     summary_markdown: str,
     proposal_ids: Sequence[int],
+    proposals: Sequence[dict[str, object]] | None = None,
 ) -> None:
     message = format_notification_message(
         trigger_reason=trigger_reason,
         summary_markdown=summary_markdown,
         proposal_ids=proposal_ids,
         env=settings.t212_env,
+        proposals=proposals,
     )
 
     # 1. Always print to console
