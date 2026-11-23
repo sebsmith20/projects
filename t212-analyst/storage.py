@@ -85,7 +85,9 @@ class Storage:
                         CHECK(status IN ('PENDING', 'APPROVED_IN_FLIGHT', 'EXECUTED', 'FAILED', 'REJECTED', 'EXPIRED')),
                     idempotency_key TEXT NOT NULL UNIQUE,
                     t212_order_id TEXT,
-                    execution_response_json TEXT
+                    execution_response_json TEXT,
+                    daily_num INTEGER,
+                    proposal_date TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_proposals_status
@@ -94,6 +96,14 @@ class Storage:
                     ON briefings(timestamp);
                 """
             )
+            for alter_sql in (
+                "ALTER TABLE trade_proposals ADD COLUMN daily_num INTEGER;",
+                "ALTER TABLE trade_proposals ADD COLUMN proposal_date TEXT;",
+            ):
+                try:
+                    conn.execute(alter_sql)
+                except sqlite3.OperationalError:
+                    pass
 
     def save_portfolio_snapshot(
         self,
@@ -169,6 +179,7 @@ class Storage:
         ideas: list[dict[str, Any]],
     ) -> tuple[int, list[int]]:
         now = utc_now_iso()
+        today = now[:10]
         proposal_ids: list[int] = []
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -181,6 +192,22 @@ class Storage:
                     (now, trigger_reason, summary_markdown, json.dumps(raw_payload)),
                 )
                 briefing_id = int(cur.lastrowid)
+
+                # Expire stale PENDING proposals from previous days so daily #1..N never collide
+                conn.execute(
+                    """
+                    UPDATE trade_proposals
+                    SET status = 'EXPIRED', updated_at = ?
+                    WHERE status = 'PENDING' AND (proposal_date IS NULL OR proposal_date < ?)
+                    """,
+                    (now, today),
+                )
+
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(daily_num), 0) AS max_num FROM trade_proposals WHERE proposal_date = ?",
+                    (today,),
+                ).fetchone()
+                next_daily_num = int(row["max_num"]) + 1 if row else 1
 
                 for idea in ideas:
                     action = str(idea.get("action", "HOLD")).upper()
@@ -200,8 +227,8 @@ class Storage:
                         INSERT INTO trade_proposals (
                             briefing_id, created_at, updated_at, t212_ticker, yahoo_symbol,
                             action, quantity, order_type, limit_price, reasoning,
-                            status, idempotency_key
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                            status, idempotency_key, daily_num, proposal_date
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
                         """,
                         (
                             briefing_id,
@@ -215,14 +242,35 @@ class Storage:
                             float(limit_price) if limit_price is not None else None,
                             idea.get("reasoning", ""),
                             str(uuid.uuid4()),
+                            next_daily_num,
+                            today,
                         ),
                     )
+                    next_daily_num += 1
                     proposal_ids.append(int(p_cur.lastrowid))
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
         return briefing_id, proposal_ids
+
+    def resolve_proposal_id(self, num: int) -> int | None:
+        """Resolve a user-facing daily_num (for PENDING) or internal id to the row id."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM trade_proposals
+                WHERE status = 'PENDING' AND daily_num = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (num,),
+            ).fetchone()
+            if row:
+                return int(row["id"])
+            row_by_id = conn.execute(
+                "SELECT id FROM trade_proposals WHERE id = ?", (num,)
+            ).fetchone()
+            return int(row_by_id["id"]) if row_by_id else None
 
     def list_proposals(self, status: str | None = None, limit: int = 25) -> list[dict[str, Any]]:
         with self._connect() as conn:

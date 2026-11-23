@@ -29,7 +29,7 @@ def format_notification_message(
         lines.append("")
         lines.append("Pending Trade Proposals (tap or reply to approve):")
         for p in proposals:
-            pid = p["id"]
+            pid = p.get("daily_num") or p["id"]
             action = p["action"]
             qty = p["quantity"]
             sym = p.get("yahoo_symbol") or p["t212_ticker"]

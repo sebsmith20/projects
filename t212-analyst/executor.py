@@ -28,10 +28,11 @@ def _print_proposals(proposals: list[dict[str, Any]]) -> None:
     )
     print("-" * 100)
     for p in proposals:
+        num = p.get("daily_num") or p["id"]
         lprice = f"{p['limit_price']:.2f}" if p["limit_price"] is not None else "-"
         reason = (p["reasoning"] or "")[:45]
         print(
-            f"{p['id']:<4} {p['status']:<18} {p['action']:<6} {p['quantity']:<8} "
+            f"{num:<4} {p['status']:<18} {p['action']:<6} {p['quantity']:<8} "
             f"{p['t212_ticker']:<14} {p['order_type']:<7} {lprice:<9} {reason}"
         )
 
@@ -176,13 +177,18 @@ def interactive_loop(storage: Storage, client: Trading212Client, env: str) -> in
             status = parts[1].upper() if len(parts) > 1 else None
             _print_proposals(storage.list_proposals(status=status))
         elif cmd == "approve" and len(parts) == 2 and parts[1].isdigit():
-            approve_and_execute(int(parts[1]), storage, client, env, skip_confirm=False)
-        elif cmd == "reject" and len(parts) == 2 and parts[1].isdigit():
-            pid = int(parts[1])
-            if storage.reject_proposal(pid):
-                print(f"Proposal #{pid} marked REJECTED.")
+            pid = storage.resolve_proposal_id(int(parts[1]))
+            if pid is None:
+                print(f"Proposal #{parts[1]} not found.")
             else:
-                print(f"Could not reject proposal #{pid} (must exist and be PENDING).")
+                approve_and_execute(pid, storage, client, env, skip_confirm=False)
+        elif cmd == "reject" and len(parts) == 2 and parts[1].isdigit():
+            num = int(parts[1])
+            pid = storage.resolve_proposal_id(num)
+            if pid is not None and storage.reject_proposal(pid):
+                print(f"Proposal #{num} marked REJECTED.")
+            else:
+                print(f"Could not reject proposal #{num} (must exist and be PENDING).")
         else:
             print("Unknown command. Use: list [STATUS] | approve <id> | reject <id> | quit")
 
@@ -217,7 +223,8 @@ def main() -> int:
         return 0
 
     if args.command == "reject":
-        if storage.reject_proposal(args.proposal_id):
+        pid = storage.resolve_proposal_id(args.proposal_id)
+        if pid is not None and storage.reject_proposal(pid):
             print(f"Proposal #{args.proposal_id} marked REJECTED.")
             return 0
         print(f"Could not reject proposal #{args.proposal_id} (not found or not PENDING).")
@@ -230,8 +237,12 @@ def main() -> int:
     )
 
     if args.command == "approve":
+        pid = storage.resolve_proposal_id(args.proposal_id)
+        if pid is None:
+            print(f"Proposal #{args.proposal_id} not found.")
+            return 1
         ok = approve_and_execute(
-            args.proposal_id,
+            pid,
             storage,
             client,
             settings.t212_env,
