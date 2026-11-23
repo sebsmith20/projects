@@ -168,7 +168,7 @@ def _build_llm_prompt(
         "}\n"
         "Rules:\n"
         "- Scan ALL focus_tickers, positions, and other_watchlist (do NOT default to a single stock).\n"
-        "- Return 3 to 5 of the strongest trade_ideas across different stocks/sectors (prioritizing actionable BUY/SELL setups where macro + technicals + catalysts align, plus key HOLDs on top movers).\n"
+        "- Include as many trade_ideas as are genuinely relevant for the day across your watchlist and holdings (whether 2 or 10+), prioritizing actionable BUY/SELL setups where macro + technicals + catalysts align, plus key HOLDs on major movers.\n"
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
         "- For HOLD ideas, set quantity to 0.\n"
