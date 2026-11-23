@@ -242,6 +242,7 @@ def fetch_symbol_snapshot(
     yahoo_symbol: str,
     t212_ticker: str | None = None,
     move_threshold_pct: float = 2.0,
+    name: str | None = None,
 ) -> dict[str, Any]:
     """Pull current price, daily % change, technicals (RSI/SMA/vol), and recent news."""
     price, prev_close, change_pct, volume, technicals = _fetch_chart_http(yahoo_symbol, range_str="1y")
@@ -279,6 +280,7 @@ def fetch_symbol_snapshot(
     return {
         "yahoo_symbol": yahoo_symbol,
         "t212_ticker": t212_ticker,
+        "name": name or yahoo_symbol,
         "price": round(price, 4) if price is not None else None,
         "prev_close": round(prev_close, 4) if prev_close is not None else None,
         "change_pct": round(change_pct, 2) if change_pct is not None else None,
@@ -306,6 +308,7 @@ def collect_market_universe(
         targets[ys] = {
             "yahoo_symbol": ys,
             "t212_ticker": t212_t,
+            "name": item.get("name") or ys,
             "move_threshold_pct": float(item.get("move_threshold_pct", default_threshold_pct)),
         }
 
@@ -323,6 +326,7 @@ def collect_market_universe(
             {
                 "yahoo_symbol": ys,
                 "t212_ticker": t212_t,
+                "name": ys,
                 "move_threshold_pct": default_threshold_pct,
             },
         )
@@ -334,6 +338,7 @@ def collect_market_universe(
                 yahoo_symbol=target["yahoo_symbol"],
                 t212_ticker=target.get("t212_ticker"),
                 move_threshold_pct=target["move_threshold_pct"],
+                name=target.get("name"),
             )
         )
     return snapshots

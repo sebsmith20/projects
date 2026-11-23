@@ -176,7 +176,24 @@ def _build_llm_prompt(
     )
 
 
-def _format_briefing_markdown(data: dict[str, Any]) -> str:
+def _build_name_map(market_snapshots: list[dict[str, Any]]) -> dict[str, str]:
+    name_map: dict[str, str] = {}
+    for m in market_snapshots:
+        ys = m.get("yahoo_symbol", "")
+        t212 = m.get("t212_ticker")
+        raw_name = m.get("name") or ys
+        label = f"{raw_name} ({ys})" if raw_name and raw_name != ys else ys
+        if ys:
+            name_map[ys] = label
+        if t212:
+            name_map[t212] = label
+    return name_map
+
+
+def _format_briefing_markdown(
+    data: dict[str, Any], name_map: dict[str, str] | None = None
+) -> str:
+    names = name_map or {}
     lines = [
         "### Portfolio P&L Impact",
         data.get("portfolio_pnl_impact", "N/A"),
@@ -199,13 +216,16 @@ def _format_briefing_markdown(data: dict[str, Any]) -> str:
     else:
         for idea in ideas:
             action = idea.get("action", "HOLD")
-            ticker = idea.get("t212_ticker") or idea.get("yahoo_symbol")
+            t212 = idea.get("t212_ticker")
+            ys = idea.get("yahoo_symbol")
+            raw_id = t212 or ys or "UNKNOWN"
+            display_name = names.get(raw_id) or (names.get(ys, raw_id) if ys else raw_id)
             qty = idea.get("quantity", 0)
             otype = idea.get("order_type", "MARKET")
             lprice = idea.get("limit_price")
             price_str = f" @ {lprice}" if otype == "LIMIT" and lprice else ""
             lines.append(
-                f"- **{action} {qty} {ticker}** ({otype}{price_str}): {idea.get('reasoning', '')}"
+                f"- **{action} {qty} {display_name}** ({otype}{price_str}): {idea.get('reasoning', '')}"
             )
     return "\n".join(lines)
 
@@ -296,10 +316,11 @@ def generate_briefing(
     macro_context: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run LLM (or deterministic fallback) and return (markdown, raw_dict)."""
+    name_map = _build_name_map(market_snapshots)
     if not settings.llm_api_key:
         logger.info("LLM_API_KEY not set; using deterministic fallback briefing.")
         raw = _fallback_rule_based_analysis(positions, cash_data, market_snapshots, trigger_reason)
-        return _format_briefing_markdown(raw), raw
+        return _format_briefing_markdown(raw, name_map), raw
 
     base_url = settings.llm_base_url.rstrip("/")
     prompt = _build_llm_prompt(
@@ -330,7 +351,7 @@ def generate_briefing(
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"] or "{}"
                 raw = json.loads(content)
-                return _format_briefing_markdown(raw), raw
+                return _format_briefing_markdown(raw, name_map), raw
 
             last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
             if resp.status_code in {429, 500, 502, 503, 504} and attempt < 3:
@@ -357,4 +378,4 @@ def generate_briefing(
         f for f in raw.get("risk_flags", []) if "LLM_API_KEY not set" not in f
     ]
     raw["risk_flags"] = [f"LLM temporarily unavailable ({last_error[:120]}); fallback summary used."] + cleaned_flags
-    return _format_briefing_markdown(raw), raw
+    return _format_briefing_markdown(raw, name_map), raw
