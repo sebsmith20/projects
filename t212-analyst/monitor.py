@@ -111,11 +111,15 @@ def run_cycle(
         len(proposal_ids),
         proposal_ids,
     )
+    created_proposals = [
+        p for pid in proposal_ids if (p := storage.get_proposal(pid)) is not None
+    ]
     send_notifications(
         settings=settings,
         trigger_reason=trigger_reason,
         summary_markdown=summary_md,
         proposal_ids=proposal_ids,
+        proposals=created_proposals,
     )
 
 
