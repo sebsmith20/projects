@@ -168,7 +168,7 @@ def _build_llm_prompt(
         "}\n"
         "Rules:\n"
         "- Scan ALL focus_tickers, positions, and other_watchlist (do NOT default to a single stock).\n"
-        "- Include as many trade_ideas as are genuinely relevant for the day across your watchlist and holdings (whether 2 or 10+), prioritizing actionable BUY/SELL setups where macro + technicals + catalysts align, plus key HOLDs on major movers.\n"
+        "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators (RSI-14, SMA-50/200, 52w high, volume ratio). Do NOT artificially limit the number of trade ideas.\n"
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
         "- For HOLD ideas, set quantity to 0.\n"
@@ -339,7 +339,7 @@ def generate_briefing(
                 },
                 json={
                     "model": settings.llm_model,
-                    "temperature": 0.2,
+                    "temperature": 0.0,
                     "response_format": {"type": "json_object"},
                     "messages": [
                         {"role": "system", "content": "You are a concise, risk-aware equity analyst."},
