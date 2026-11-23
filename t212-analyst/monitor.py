@@ -91,6 +91,7 @@ def run_cycle(
 
     logger.info("Analysis triggered: %s", trigger_reason)
     macro_context = fetch_macro_context()
+    todays_proposals = storage.get_todays_proposals(today_utc_prefix)
     summary_md, raw_payload = generate_briefing(
         settings=settings,
         positions=positions,
@@ -98,6 +99,7 @@ def run_cycle(
         market_snapshots=market_snapshots,
         trigger_reason=trigger_reason,
         macro_context=macro_context,
+        todays_proposals=todays_proposals,
     )
     briefing_id, proposal_ids = storage.save_briefing_and_proposals(
         trigger_reason=trigger_reason,

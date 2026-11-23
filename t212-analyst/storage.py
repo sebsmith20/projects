@@ -171,6 +171,20 @@ class Storage:
             ).fetchall()
             return [str(r["trigger_reason"]) for r in rows]
 
+    def get_todays_proposals(self, date_prefix: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT daily_num, t212_ticker, yahoo_symbol, action, quantity,
+                       order_type, limit_price, status
+                FROM trade_proposals
+                WHERE proposal_date = ? OR created_at LIKE ?
+                ORDER BY id ASC
+                """,
+                (date_prefix, f"{date_prefix}%"),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def save_briefing_and_proposals(
         self,
         trigger_reason: str,

@@ -84,6 +84,7 @@ def _build_llm_prompt(
     market_snapshots: list[dict[str, Any]],
     trigger_reason: str,
     macro_context: dict[str, Any] | None = None,
+    todays_proposals: list[dict[str, Any]] | None = None,
 ) -> str:
     held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
 
@@ -107,6 +108,7 @@ def _build_llm_prompt(
                 "px": m.get("price"),
                 "chg%": m.get("change_pct"),
                 "rsi14": t.get("rsi_14"),
+                "sma20": t.get("sma_20"),
                 "sma50": t.get("sma_50"),
                 "sma200": t.get("sma_200"),
                 "52wHi%": t.get("pct_from_52w_high"),
@@ -140,6 +142,7 @@ def _build_llm_prompt(
             }
             for p in positions
         ],
+        "todays_prior_proposals": todays_proposals or [],
         "focus_tickers": detailed_market,
         "other_watchlist": other_watchlist,
     }
@@ -147,7 +150,7 @@ def _build_llm_prompt(
     return (
         "You are a disciplined portfolio risk analyst assisting a human trader on Trading 212.\n"
         "Synthesize the macro regime (VIX, 10Y yield, DXY, GBP/USD, Gold, Oil), "
-        "technical indicators (RSI-14, SMA-50/200 trend, 52w high distance, volume ratio), "
+        "technical indicators (RSI-14, SMA-20/50/200 trend, 52w high distance, volume ratio), "
         "news catalysts, and portfolio cash/P&L below.\n"
         "Return ONLY valid JSON with this exact schema:\n"
         "{\n"
@@ -168,7 +171,9 @@ def _build_llm_prompt(
         "}\n"
         "Rules:\n"
         "- Scan ALL focus_tickers, positions, and other_watchlist (do NOT default to a single stock).\n"
-        "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators (RSI-14, SMA-50/200, 52w high, volume ratio). Do NOT artificially limit the number of trade ideas.\n"
+        "- Coordinate with todays_prior_proposals (from earlier today, e.g. the 10:00 ET open run): do NOT duplicate already-PENDING or EXECUTED buys for the same ticker today.\n"
+        "- Wait for better opportunities: you are NOT required to spend cash every run. If a stock is extended/overbought (e.g. RSI-14 > 65 or far above SMA-20/50) or macro risk is elevated, advise holding cash (HOLD) or propose a LIMIT buy at a pullback support level (e.g. near SMA-20 or SMA-50) instead of a MARKET buy.\n"
+        "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators. Do NOT artificially limit the number of trade ideas.\n"
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
         "- For HOLD ideas, set quantity to 0.\n"
@@ -315,6 +320,7 @@ def generate_briefing(
     market_snapshots: list[dict[str, Any]],
     trigger_reason: str,
     macro_context: dict[str, Any] | None = None,
+    todays_proposals: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run LLM (or deterministic fallback) and return (markdown, raw_dict)."""
     name_map = _build_name_map(market_snapshots)
@@ -325,7 +331,12 @@ def generate_briefing(
 
     base_url = settings.llm_base_url.rstrip("/")
     prompt = _build_llm_prompt(
-        positions, cash_data, market_snapshots, trigger_reason, macro_context=macro_context
+        positions,
+        cash_data,
+        market_snapshots,
+        trigger_reason,
+        macro_context=macro_context,
+        todays_proposals=todays_proposals,
     )
 
     last_error = ""
