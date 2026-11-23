@@ -85,44 +85,70 @@ def _build_llm_prompt(
     trigger_reason: str,
     macro_context: dict[str, Any] | None = None,
 ) -> str:
+    held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
+
+    def _priority_key(m: dict[str, Any]) -> tuple[int, int, float]:
+        is_held = 1 if m.get("t212_ticker") in held_tickers else 0
+        has_cat = 1 if m.get("catalysts") else 0
+        chg = abs(float(m.get("change_pct") or 0.0))
+        return (is_held, has_cat, chg)
+
+    ranked = sorted(market_snapshots, key=_priority_key, reverse=True)
+    detailed_snaps = ranked[:15]
+    compact_snaps = ranked[15:]
+
+    detailed_market = []
+    for m in detailed_snaps:
+        t = m.get("technicals") or {}
+        detailed_market.append(
+            {
+                "sym": m["yahoo_symbol"],
+                "t212": m.get("t212_ticker"),
+                "px": m.get("price"),
+                "chg%": m.get("change_pct"),
+                "rsi14": t.get("rsi_14"),
+                "sma50": t.get("sma_50"),
+                "sma200": t.get("sma_200"),
+                "52wHi%": t.get("pct_from_52w_high"),
+                "volX": t.get("volume_ratio_20d"),
+                "cat": m.get("catalysts", [])[:2],
+                "news": [n["title"][:90] for n in m.get("news", [])[:2]],
+            }
+        )
+
+    other_watchlist = {
+        m["yahoo_symbol"]: f"{m.get('change_pct') or 0:+.1f}%,RSI:{(m.get('technicals') or {}).get('rsi_14')}"
+        for m in compact_snaps
+    }
+
     context = {
-        "trigger_reason": trigger_reason,
-        "macro_context": macro_context or {},
-        "account_cash": {
+        "trigger": trigger_reason,
+        "macro": macro_context or {},
+        "cash": {
             "free": cash_data.get("free"),
             "invested": cash_data.get("invested"),
             "ppl": cash_data.get("ppl"),
             "total": cash_data.get("total"),
         },
-        "open_positions": [
+        "positions": [
             {
                 "ticker": p.get("ticker"),
-                "quantity": p.get("quantity"),
-                "averagePrice": p.get("averagePrice"),
-                "currentPrice": p.get("currentPrice"),
+                "qty": p.get("quantity"),
+                "avgPx": p.get("averagePrice"),
+                "curPx": p.get("currentPrice"),
                 "ppl": p.get("ppl"),
             }
             for p in positions
         ],
-        "market_and_news": [
-            {
-                "yahoo_symbol": m["yahoo_symbol"],
-                "t212_ticker": m.get("t212_ticker"),
-                "price": m.get("price"),
-                "change_pct": m.get("change_pct"),
-                "technicals": m.get("technicals", {}),
-                "catalysts": m.get("catalysts", []),
-                "headlines": [n["title"] for n in m.get("news", [])[:4]],
-            }
-            for m in market_snapshots
-        ],
+        "focus_tickers": detailed_market,
+        "other_watchlist": other_watchlist,
     }
 
     return (
         "You are a disciplined portfolio risk analyst assisting a human trader on Trading 212.\n"
-        "Synthesize the macro regime (VIX, 10Y Treasury yield, DXY, GBP/USD, Gold, Oil), "
-        "technical indicators (RSI-14, SMA-20/50/200 trend, 52w high distance, 5d/20d momentum, "
-        "volume ratio, 20d volatility), news catalysts, and portfolio cash/P&L below.\n"
+        "Synthesize the macro regime (VIX, 10Y yield, DXY, GBP/USD, Gold, Oil), "
+        "technical indicators (RSI-14, SMA-50/200 trend, 52w high distance, volume ratio), "
+        "news catalysts, and portfolio cash/P&L below.\n"
         "Return ONLY valid JSON with this exact schema:\n"
         "{\n"
         '  "portfolio_pnl_impact": "concise 1-2 sentence summary including macro backdrop",\n'
@@ -145,7 +171,7 @@ def _build_llm_prompt(
         "- Never recommend selling more shares than currently held.\n"
         "- Prefer HOLD unless macro + technicals + catalysts align.\n"
         "- For HOLD ideas, set quantity to 0.\n\n"
-        f"DATA:\n{json.dumps(context, indent=2)}"
+        f"DATA:\n{json.dumps(context, separators=(',', ':'))}"
     )
 
 
@@ -305,7 +331,8 @@ def generate_briefing(
 
     logger.error("LLM unavailable after retries (%s); using fallback briefing.", last_error)
     raw = _fallback_rule_based_analysis(positions, cash_data, market_snapshots, trigger_reason)
-    raw["risk_flags"] = [f"LLM temporarily unavailable ({last_error[:120]}); fallback summary used."] + raw.get(
-        "risk_flags", []
-    )
+    cleaned_flags = [
+        f for f in raw.get("risk_flags", []) if "LLM_API_KEY not set" not in f
+    ]
+    raw["risk_flags"] = [f"LLM temporarily unavailable ({last_error[:120]}); fallback summary used."] + cleaned_flags
     return _format_briefing_markdown(raw), raw
