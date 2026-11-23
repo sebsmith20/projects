@@ -152,8 +152,8 @@ def _build_llm_prompt(
         "Return ONLY valid JSON with this exact schema:\n"
         "{\n"
         '  "portfolio_pnl_impact": "concise 1-2 sentence summary including macro backdrop",\n'
-        '  "key_news_catalysts": ["bullet 1", "bullet 2"],\n'
-        '  "risk_flags": ["risk 1 (macro/technical/concentration)", "risk 2"],\n'
+        '  "key_news_catalysts": ["top 1-5 highest-impact catalysts only, ranked by importance"],\n'
+        '  "risk_flags": ["top 1-5 most important risks only (macro/technical/concentration), ranked by severity"],\n'
         '  "trade_ideas": [\n'
         "    {\n"
         '      "t212_ticker": "AAPL_US_EQ",\n'
@@ -170,7 +170,8 @@ def _build_llm_prompt(
         "- Never recommend spending more than available free cash.\n"
         "- Never recommend selling more shares than currently held.\n"
         "- Prefer HOLD unless macro + technicals + catalysts align.\n"
-        "- For HOLD ideas, set quantity to 0.\n\n"
+        "- For HOLD ideas, set quantity to 0.\n"
+        "- Return at most 5 items in key_news_catalysts and at most 5 items in risk_flags, dynamically ranked by importance.\n\n"
         f"DATA:\n{json.dumps(context, separators=(',', ':'))}"
     )
 
@@ -180,14 +181,14 @@ def _format_briefing_markdown(data: dict[str, Any]) -> str:
         "### Portfolio P&L Impact",
         data.get("portfolio_pnl_impact", "N/A"),
         "",
-        "### Key News Catalysts",
+        "### Key News Catalysts (Top 5)",
     ]
-    catalysts = data.get("key_news_catalysts") or ["None flagged"]
+    catalysts = (data.get("key_news_catalysts") or ["None flagged"])[:5]
     for c in catalysts:
         lines.append(f"- {c}")
 
-    lines.extend(["", "### Risk Flags"])
-    risks = data.get("risk_flags") or ["None flagged"]
+    lines.extend(["", "### Top Risk Flags (Top 5)"])
+    risks = (data.get("risk_flags") or ["None flagged"])[:5]
     for r in risks:
         lines.append(f"- {r}")
 
@@ -215,26 +216,47 @@ def _fallback_rule_based_analysis(
     market_snapshots: list[dict[str, Any]],
     trigger_reason: str,
 ) -> dict[str, Any]:
-    """Deterministic briefing used when LLM_API_KEY is not configured."""
+    """Deterministic briefing used when LLM_API_KEY is not configured or LLM is unavailable."""
     free_cash = float(cash_data.get("free", 0.0) or 0.0)
     ppl = float(cash_data.get("ppl", 0.0) or 0.0)
+    held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
+
     movers = sorted(
         [m for m in market_snapshots if m.get("change_pct") is not None],
         key=lambda x: abs(float(x["change_pct"])),
         reverse=True,
     )
-    top_str = ", ".join(f"{m['yahoo_symbol']} ({m['change_pct']:+.2f}%)" for m in movers[:3])
+    top_str = ", ".join(f"{m['yahoo_symbol']} ({m['change_pct']:+.2f}%)" for m in movers[:5])
 
-    catalysts = []
+    high_signal_words = (
+        "fda", "earnings", "guidance", "acquisition", "merger", "award",
+        "contract", "downgrade", "upgrade", "sec ", "investigation", "bankruptcy",
+    )
+    scored_catalysts: list[tuple[float, str]] = []
     for m in market_snapshots:
-        for c in m.get("catalysts", [])[:2]:
-            catalysts.append(f"{m['yahoo_symbol']}: {c}")
+        is_held = 100.0 if m.get("t212_ticker") in held_tickers else 0.0
+        move_score = abs(float(m.get("change_pct") or 0.0))
+        for title in m.get("catalysts", [])[:2]:
+            kw_bonus = 10.0 if any(w in title.lower() for w in high_signal_words) else 0.0
+            scored_catalysts.append((is_held + move_score + kw_bonus, f"{m['yahoo_symbol']}: {title}"))
 
-    risk_flags = []
+    scored_catalysts.sort(key=lambda x: x[0], reverse=True)
+    catalysts = [text for _score, text in scored_catalysts[:5]]
+
+    risk_flags: list[str] = []
     if free_cash < 100:
         risk_flags.append(f"Low free cash buffer ({free_cash:.2f}).")
     if not positions:
         risk_flags.append("No open positions currently held in Trading 212 account.")
+    for m in movers[:3]:
+        chg = float(m.get("change_pct") or 0.0)
+        tech = m.get("technicals") or {}
+        rsi = tech.get("rsi_14")
+        if abs(chg) >= 5.0:
+            risk_flags.append(f"High volatility on {m['yahoo_symbol']} ({chg:+.2f}% today).")
+        elif rsi is not None and (rsi >= 70 or rsi <= 30):
+            state = "overbought" if rsi >= 70 else "oversold"
+            risk_flags.append(f"{m['yahoo_symbol']} RSI-14 at {rsi:.1f} ({state}).")
 
     ideas: list[dict[str, Any]] = []
     for m in movers[:2]:
@@ -248,7 +270,7 @@ def _fallback_rule_based_analysis(
                     "order_type": "MARKET",
                     "limit_price": None,
                     "reasoning": (
-                        f"Fallback mode (no LLM_API_KEY set). Trigger: {trigger_reason}. "
+                        f"Fallback mode. Trigger: {trigger_reason}. "
                         f"Observed move: {m['change_pct']:+.2f}%."
                     ),
                 }
@@ -260,7 +282,7 @@ def _fallback_rule_based_analysis(
             f"Positions: {len(positions)} | Top movers: {top_str or 'N/A'}"
         ),
         "key_news_catalysts": catalysts or ["No major catalyst headlines detected."],
-        "risk_flags": risk_flags or ["LLM_API_KEY not set — running deterministic summary mode."],
+        "risk_flags": (risk_flags or ["LLM_API_KEY not set — running deterministic summary mode."])[:5],
         "trade_ideas": ideas,
     }
 
