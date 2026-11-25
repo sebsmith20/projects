@@ -305,12 +305,40 @@ def _select_sector_diversified_focus(
     held_tickers: set[str],
     limit: int = 20,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Select focus tickers ensuring held positions and every watchlist sector are represented."""
-    def _rank_key(m: dict[str, Any]) -> tuple[int, int, float]:
+    """Select focus tickers ensuring held positions, every sector, and top performers are represented."""
+    def _rank_key(m: dict[str, Any]) -> tuple[int, float, int, float]:
         is_held = 1 if m.get("t212_ticker") in held_tickers else 0
         has_cat = 1 if m.get("catalysts") else 0
         chg = abs(float(m.get("change_pct") or 0.0))
-        return (is_held, has_cat, chg)
+        tech = m.get("technicals") or {}
+
+        ret5d = float(tech.get("return_5d_pct") or 0.0)
+        ret20d = float(tech.get("return_20d_pct") or 0.0)
+        ret1y = float(tech.get("return_1y_pct") or 0.0)
+        ret5y = float(tech.get("return_5y_pct") or 0.0)
+
+        # Detect buying opportunity on a strong 5-year compounder (pullback/dip)
+        rsi = tech.get("rsi_14")
+        pct_52w = tech.get("pct_from_52w_high")
+        px = m.get("price")
+        sma50 = tech.get("sma_50")
+        is_pullback = (
+            (rsi is not None and float(rsi) <= 48.0)
+            or (pct_52w is not None and float(pct_52w) <= -8.0)
+            or (px is not None and sma50 is not None and float(px) < float(sma50))
+        )
+        compounder_dip_bonus = 50.0 if (ret5y >= 50.0 and is_pullback) else 0.0
+
+        perf_score = (
+            compounder_dip_bonus
+            + max(ret20d, 0.0) * 1.5
+            + max(ret5d, 0.0) * 1.2
+            + max(ret1y, 0.0) * 0.25
+            + max(ret5y, 0.0) * 0.15
+            + (15.0 if has_cat else 0.0)
+            + chg
+        )
+        return (is_held, round(perf_score, 4), has_cat, chg)
 
     ranked = sorted(market_snapshots, key=_rank_key, reverse=True)
     selected: list[dict[str, Any]] = []
@@ -380,6 +408,10 @@ def _build_llm_prompt(
                 "px": m.get("price"),
                 "ccy": m.get("currency"),
                 "chg%": m.get("change_pct"),
+                "ret5d%": t.get("return_5d_pct"),
+                "ret20d%": t.get("return_20d_pct"),
+                "ret1y%": t.get("return_1y_pct"),
+                "ret5y%": t.get("return_5y_pct"),
                 "rsi14": t.get("rsi_14"),
                 "sma20": t.get("sma_20"),
                 "sma50": t.get("sma_50"),
@@ -394,6 +426,8 @@ def _build_llm_prompt(
     other_watchlist = {
         m["yahoo_symbol"]: (
             f"[{m.get('sector', 'Other')}] {m.get('change_pct') or 0:+.1f}%,"
+            f"20d:{(m.get('technicals') or {}).get('return_20d_pct')}%,"
+            f"5y:{(m.get('technicals') or {}).get('return_5y_pct')}%,"
             f"RSI:{(m.get('technicals') or {}).get('rsi_14')}"
         )
         for m in compact_snaps
@@ -440,7 +474,7 @@ def _build_llm_prompt(
         "You are a disciplined portfolio risk analyst assisting a human trader on Trading 212.\n"
         "Synthesize the macro regime (VIX, 10Y yield, DXY, GBP/USD, Gold, Oil), "
         "technical indicators (RSI-14, SMA-20/50/200 trend, 52w high distance, volume ratio), "
-        "news catalysts, and portfolio cash/P&L below.\n"
+        "short-term vs 5-year return track record, news catalysts, and portfolio cash/P&L below.\n"
         "Return ONLY valid JSON with this exact schema:\n"
         "{\n"
         '  "portfolio_pnl_impact": "concise 1-2 sentence summary including macro backdrop",\n'
@@ -461,6 +495,7 @@ def _build_llm_prompt(
         "}\n"
         "Rules:\n"
         "- Scan ALL focus_tickers, positions, and other_watchlist across MULTIPLE sectors (Tech/Semis, Healthcare, Financials, Energy/Nuclear, Defense, Consumer Staples, Broad ETFs/Gold) — do NOT over-concentrate BUY ideas in a single sector.\n"
+        "- Prioritize the best-performing stocks in each sector when diversifying: compare short-term percentage return (`ret5d%`/`ret20d%`) against 5-year performance (`ret5y%`/`ret1y%`). Favor a short-term momentum leader when it offers a stronger near-term percentage return setup, BUT if a proven 5-year strong performer (`ret5y%`) is at an attractive buying opportunity (e.g., pullback toward SMA-20/50, RSI-14 <= 48, or meaningful discount from 52w high), buy that 5-year compounder instead.\n"
         "- Coordinate with todays_prior_proposals (from earlier today, e.g. the 10:00 ET open run): do NOT duplicate already-PENDING or EXECUTED buys for the same ticker today.\n"
         "- Wait for better opportunities: you are NOT required to spend cash every run. If a stock is extended/overbought (e.g. RSI-14 > 65 or far above SMA-20/50) or macro risk is elevated, advise holding cash (HOLD) or propose a LIMIT buy at a pullback support level (e.g. near SMA-20 or SMA-50) instead of a MARKET buy.\n"
         "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators. Do NOT artificially limit the number of trade ideas.\n"
