@@ -6,7 +6,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from zoneinfo import ZoneInfo
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
 
 import pytest
 import requests
