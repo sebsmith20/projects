@@ -144,3 +144,32 @@ When you are ready to switch from `demo` to `live`, update `T212_API_KEY`, `T212
 ```bash
 sudo systemctl restart t212-monitor t212-telegram-bot
 ```
+
+---
+
+## 3. Dynamic BUY Sizing, Multi-Sector & 5-Year Ranking
+
+- **Dynamic Cash-Pot Sizing (`analyst.py`, `config.py`)**:
+  - `BUY` proposals are sized deterministically as fractional shares from `free` cash minus any already-`PENDING` `BUY` proposals from earlier today (`available_after_pending`), with a configurable cash buffer (`CASH_BUFFER_PCT=5.0`), per-trade cap (`MAX_SINGLE_BUY_PCT=50.0`), and minimum trade size (`MIN_TRADE_AMOUNT=5.0`).
+  - Multiple `BUY` ideas split the cash pot proportionally by `allocation_pct` (normalized so total <= 100%).
+  - Quote currencies (`USD`, `GBP`, `GBp` pence) are converted to `ACCOUNT_CURRENCY` (default `GBP`) using `GBPUSD=X`.
+- **Multi-Sector & 5-Year Compounder Selection (`watchlist.json`, `market_data.py`, `analyst.py`)**:
+  - Fetches 5-year daily history (`return_5d_pct`, `return_20d_pct`, `return_1y_pct`, `return_5y_pct`) across all 47 watchlist tickers.
+  - Selects the top 12 `focus_tickers` round-robin across all 10 sectors (prioritizing strong 5-year compounders on a pullback as well as short-term return leaders) and sends the remaining 35 in compact `other_watchlist` format to stay within Groq token limits.
+
+### Updating an Existing Oracle Cloud VM (`/opt/t212-analyst`)
+
+If `/opt/t212-analyst` is not a git checkout, sync from `main` while preserving `.env`, `.venv/`, and `data/`:
+
+```bash
+cd /tmp && rm -rf projects
+git clone --depth=1 https://github.com/sebsmith20/projects.git
+rsync -av --exclude='.env' --exclude='.venv' --exclude='data' /tmp/projects/t212-analyst/ /opt/t212-analyst/
+rm -rf /tmp/projects
+
+cd /opt/t212-analyst
+.venv/bin/pytest -v
+sudo systemctl restart t212-monitor t212-telegram-bot
+sudo systemctl status t212-monitor t212-telegram-bot
+```
+
