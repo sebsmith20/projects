@@ -394,44 +394,54 @@ def _build_llm_prompt(
 ) -> str:
     held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
     detailed_snaps, compact_snaps = _select_sector_diversified_focus(
-        market_snapshots, held_tickers, limit=20
+        market_snapshots, held_tickers, limit=12
     )
 
     detailed_market = []
     for m in detailed_snaps:
         t = m.get("technicals") or {}
-        detailed_market.append(
-            {
-                "sym": m["yahoo_symbol"],
-                "t212": m.get("t212_ticker"),
-                "sec": m.get("sector", "Other"),
-                "px": m.get("price"),
-                "ccy": m.get("currency"),
-                "chg%": m.get("change_pct"),
-                "ret5d%": t.get("return_5d_pct"),
-                "ret20d%": t.get("return_20d_pct"),
-                "ret1y%": t.get("return_1y_pct"),
-                "ret5y%": t.get("return_5y_pct"),
-                "rsi14": t.get("rsi_14"),
-                "sma20": t.get("sma_20"),
-                "sma50": t.get("sma_50"),
-                "sma200": t.get("sma_200"),
-                "52wHi%": t.get("pct_from_52w_high"),
-                "volX": t.get("volume_ratio_20d"),
-                "cat": m.get("catalysts", [])[:2],
-                "news": [n["title"][:90] for n in m.get("news", [])[:2]],
-            }
-        )
+        cats = [c[:75] for c in (m.get("catalysts") or [])[:1]]
+        cat_set = set(m.get("catalysts") or [])
+        news = [
+            n["title"][:75]
+            for n in (m.get("news") or [])
+            if n.get("title") and n["title"] not in cat_set
+        ][:1]
+        entry: dict[str, Any] = {
+            "sym": m["yahoo_symbol"],
+            "t212": m.get("t212_ticker"),
+            "sec": m.get("sector", "Other"),
+            "px": m.get("price"),
+            "chg%": m.get("change_pct"),
+            "5d%": t.get("return_5d_pct"),
+            "20d%": t.get("return_20d_pct"),
+            "1y%": t.get("return_1y_pct"),
+            "5y%": t.get("return_5y_pct"),
+            "rsi": t.get("rsi_14"),
+            "sma20": t.get("sma_20"),
+            "sma50": t.get("sma_50"),
+            "sma200": t.get("sma_200"),
+            "52wH%": t.get("pct_from_52w_high"),
+            "volX": t.get("volume_ratio_20d"),
+        }
+        if cats:
+            entry["cat"] = cats
+        if news:
+            entry["news"] = news
+        detailed_market.append({k: v for k, v in entry.items() if v is not None})
 
-    other_watchlist = {
-        m["yahoo_symbol"]: (
-            f"[{m.get('sector', 'Other')}] {m.get('change_pct') or 0:+.1f}%,"
-            f"20d:{(m.get('technicals') or {}).get('return_20d_pct')}%,"
-            f"5y:{(m.get('technicals') or {}).get('return_5y_pct')}%,"
-            f"RSI:{(m.get('technicals') or {}).get('rsi_14')}"
-        )
-        for m in compact_snaps
-    }
+    other_watchlist = {}
+    for m in compact_snaps:
+        t = m.get("technicals") or {}
+        sec_short = str(m.get("sector") or "Oth")[:5]
+        parts = [f"{sec_short}:{m.get('change_pct') or 0:+.1f}%"]
+        if t.get("return_20d_pct") is not None:
+            parts.append(f"20d:{t['return_20d_pct']}%")
+        if t.get("return_5y_pct") is not None:
+            parts.append(f"5y:{t['return_5y_pct']}%")
+        if t.get("rsi_14") is not None:
+            parts.append(f"R:{t['rsi_14']}")
+        other_watchlist[m["yahoo_symbol"]] = ",".join(parts)
 
     acct_ccy = settings.account_currency if settings else "GBP"
     max_single_pct = settings.max_single_buy_pct if settings else 50.0
@@ -442,6 +452,17 @@ def _build_llm_prompt(
         todays_proposals, snap_lookup, acct_ccy, gbpusd_rate
     )
     available_after_pending = round(max(0.0, free_cash - pending_reserved), 2)
+
+    compact_prior = [
+        {
+            "id": p.get("daily_num"),
+            "t212": p.get("t212_ticker"),
+            "act": p.get("action"),
+            "qty": p.get("quantity"),
+            "st": p.get("status"),
+        }
+        for p in (todays_proposals or [])[-10:]
+    ]
 
     context = {
         "trigger": trigger_reason,
@@ -465,7 +486,7 @@ def _build_llm_prompt(
             }
             for p in positions
         ],
-        "todays_prior_proposals": todays_proposals or [],
+        "todays_prior_proposals": compact_prior,
         "focus_tickers": detailed_market,
         "other_watchlist": other_watchlist,
     }
