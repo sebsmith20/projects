@@ -134,6 +134,8 @@ def _compute_technicals(closes: list[float], volumes: list[float]) -> dict[str, 
 
     ret_5d = ((price - closes[-6]) / closes[-6]) * 100.0 if len(closes) >= 6 and closes[-6] else None
     ret_20d = ((price - closes[-21]) / closes[-21]) * 100.0 if len(closes) >= 21 and closes[-21] else None
+    ret_1y = ((price - closes[-252]) / closes[-252]) * 100.0 if len(closes) >= 252 and closes[-252] else None
+    ret_5y = ((price - closes[0]) / closes[0]) * 100.0 if len(closes) >= 750 and closes[0] else None
 
     vol_ratio = None
     if len(volumes) >= 21:
@@ -161,13 +163,15 @@ def _compute_technicals(closes: list[float], volumes: list[float]) -> dict[str, 
         "pct_from_52w_high": round(pct_from_52w_high, 2) if pct_from_52w_high is not None else None,
         "return_5d_pct": round(ret_5d, 2) if ret_5d is not None else None,
         "return_20d_pct": round(ret_20d, 2) if ret_20d is not None else None,
+        "return_1y_pct": round(ret_1y, 2) if ret_1y is not None else None,
+        "return_5y_pct": round(ret_5y, 2) if ret_5y is not None else None,
         "volume_ratio_20d": round(vol_ratio, 2) if vol_ratio is not None else None,
         "volatility_20d_pct": round(vol_20d_ann, 1) if vol_20d_ann is not None else None,
     }
 
 
 def _fetch_chart_http(
-    yahoo_symbol: str, range_str: str = "1y"
+    yahoo_symbol: str, range_str: str = "5y"
 ) -> tuple[float | None, float | None, float | None, float | None, dict[str, Any], str | None]:
     """Pure-Python Yahoo Finance v8 chart JSON fetch (returns price, prev_close, chg%, vol, technicals, currency)."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
@@ -246,15 +250,15 @@ def fetch_symbol_snapshot(
     name: str | None = None,
     sector: str | None = None,
 ) -> dict[str, Any]:
-    """Pull current price, daily % change, technicals (RSI/SMA/vol), and recent news."""
+    """Pull current price, daily % change, technicals (RSI/SMA/5y/vol), and recent news."""
     price, prev_close, change_pct, volume, technicals, currency = _fetch_chart_http(
-        yahoo_symbol, range_str="1y"
+        yahoo_symbol, range_str="5y"
     )
 
     if price is None and yf is not None:
         try:
             ticker = yf.Ticker(yahoo_symbol)
-            hist = ticker.history(period="1y", interval="1d")
+            hist = ticker.history(period="5y", interval="1d")
             if not hist.empty:
                 closes = [float(x) for x in hist["Close"].dropna().tolist()]
                 volumes = (
