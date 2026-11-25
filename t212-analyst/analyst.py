@@ -300,6 +300,61 @@ def _apply_dynamic_buy_sizing(
     return raw
 
 
+def _select_sector_diversified_focus(
+    market_snapshots: list[dict[str, Any]],
+    held_tickers: set[str],
+    limit: int = 20,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Select focus tickers ensuring held positions and every watchlist sector are represented."""
+    def _rank_key(m: dict[str, Any]) -> tuple[int, int, float]:
+        is_held = 1 if m.get("t212_ticker") in held_tickers else 0
+        has_cat = 1 if m.get("catalysts") else 0
+        chg = abs(float(m.get("change_pct") or 0.0))
+        return (is_held, has_cat, chg)
+
+    ranked = sorted(market_snapshots, key=_rank_key, reverse=True)
+    selected: list[dict[str, Any]] = []
+    selected_syms: set[str] = set()
+
+    # 1. Always include held positions first
+    for m in ranked:
+        if m.get("t212_ticker") in held_tickers and len(selected) < limit:
+            selected.append(m)
+            selected_syms.add(m["yahoo_symbol"])
+
+    # 2. Group remaining snapshots by sector and pick round-robin
+    by_sector: dict[str, list[dict[str, Any]]] = {}
+    for m in ranked:
+        if m["yahoo_symbol"] in selected_syms:
+            continue
+        sec = str(m.get("sector") or "Other")
+        by_sector.setdefault(sec, []).append(m)
+
+    # Order sectors by their strongest candidate first
+    sector_order = sorted(
+        by_sector.keys(),
+        key=lambda s: _rank_key(by_sector[s][0]),
+        reverse=True,
+    )
+
+    idx = 0
+    while len(selected) < limit:
+        added_this_round = False
+        for sec in sector_order:
+            bucket = by_sector[sec]
+            if idx < len(bucket) and len(selected) < limit:
+                m = bucket[idx]
+                selected.append(m)
+                selected_syms.add(m["yahoo_symbol"])
+                added_this_round = True
+        if not added_this_round:
+            break
+        idx += 1
+
+    compact = [m for m in ranked if m["yahoo_symbol"] not in selected_syms]
+    return selected, compact
+
+
 def _build_llm_prompt(
     positions: list[dict[str, Any]],
     cash_data: dict[str, Any],
@@ -310,16 +365,9 @@ def _build_llm_prompt(
     settings: Settings | None = None,
 ) -> str:
     held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
-
-    def _priority_key(m: dict[str, Any]) -> tuple[int, int, float]:
-        is_held = 1 if m.get("t212_ticker") in held_tickers else 0
-        has_cat = 1 if m.get("catalysts") else 0
-        chg = abs(float(m.get("change_pct") or 0.0))
-        return (is_held, has_cat, chg)
-
-    ranked = sorted(market_snapshots, key=_priority_key, reverse=True)
-    detailed_snaps = ranked[:15]
-    compact_snaps = ranked[15:]
+    detailed_snaps, compact_snaps = _select_sector_diversified_focus(
+        market_snapshots, held_tickers, limit=20
+    )
 
     detailed_market = []
     for m in detailed_snaps:
@@ -328,6 +376,7 @@ def _build_llm_prompt(
             {
                 "sym": m["yahoo_symbol"],
                 "t212": m.get("t212_ticker"),
+                "sec": m.get("sector", "Other"),
                 "px": m.get("price"),
                 "ccy": m.get("currency"),
                 "chg%": m.get("change_pct"),
@@ -343,7 +392,10 @@ def _build_llm_prompt(
         )
 
     other_watchlist = {
-        m["yahoo_symbol"]: f"{m.get('change_pct') or 0:+.1f}%,RSI:{(m.get('technicals') or {}).get('rsi_14')}"
+        m["yahoo_symbol"]: (
+            f"[{m.get('sector', 'Other')}] {m.get('change_pct') or 0:+.1f}%,"
+            f"RSI:{(m.get('technicals') or {}).get('rsi_14')}"
+        )
         for m in compact_snaps
     }
 
@@ -408,7 +460,7 @@ def _build_llm_prompt(
         "  ]\n"
         "}\n"
         "Rules:\n"
-        "- Scan ALL focus_tickers, positions, and other_watchlist (do NOT default to a single stock).\n"
+        "- Scan ALL focus_tickers, positions, and other_watchlist across MULTIPLE sectors (Tech/Semis, Healthcare, Financials, Energy/Nuclear, Defense, Consumer Staples, Broad ETFs/Gold) — do NOT over-concentrate BUY ideas in a single sector.\n"
         "- Coordinate with todays_prior_proposals (from earlier today, e.g. the 10:00 ET open run): do NOT duplicate already-PENDING or EXECUTED buys for the same ticker today.\n"
         "- Wait for better opportunities: you are NOT required to spend cash every run. If a stock is extended/overbought (e.g. RSI-14 > 65 or far above SMA-20/50) or macro risk is elevated, advise holding cash (HOLD) or propose a LIMIT buy at a pullback support level (e.g. near SMA-20 or SMA-50) instead of a MARKET buy.\n"
         "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators. Do NOT artificially limit the number of trade ideas.\n"
