@@ -78,6 +78,228 @@ def evaluate_trigger(
     return "; ".join(reasons[:4])
 
 
+def _extract_gbpusd_rate(macro_context: dict[str, Any] | None) -> float | None:
+    if not macro_context:
+        return None
+    for ind in macro_context.get("indicators") or []:
+        if ind.get("symbol") == "GBPUSD=X":
+            try:
+                val = float(ind.get("value", 0) or 0)
+                if val > 0:
+                    return val
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def _build_snapshot_lookup(market_snapshots: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for m in market_snapshots:
+        if m.get("t212_ticker"):
+            lookup[str(m["t212_ticker"])] = m
+        if m.get("yahoo_symbol"):
+            lookup[str(m["yahoo_symbol"])] = m
+    return lookup
+
+
+def _infer_quote_currency(
+    snap: dict[str, Any] | None,
+    t212_ticker: str | None,
+    yahoo_symbol: str | None,
+) -> str | None:
+    if snap and snap.get("currency"):
+        return str(snap["currency"])
+    t212 = str(t212_ticker or "")
+    ys = str(yahoo_symbol or "")
+    if t212.endswith("_US_EQ"):
+        return "USD"
+    if t212.endswith("_L_EQ") or ys.endswith(".L"):
+        return "GBP"
+    if ys and "." not in ys:
+        return "USD"
+    return None
+
+
+def _convert_to_account_currency(
+    price: float,
+    quote_currency: str | None,
+    account_currency: str,
+    gbpusd_rate: float | None,
+) -> float:
+    if quote_currency == "GBp":
+        price_src = price / 100.0
+        src_ccy = "GBP"
+    else:
+        price_src = price
+        src_ccy = (quote_currency or account_currency).upper()
+
+    acct = account_currency.upper()
+    if src_ccy == acct or not gbpusd_rate:
+        return price_src
+    if src_ccy == "USD" and acct == "GBP":
+        return price_src / gbpusd_rate
+    if src_ccy == "GBP" and acct == "USD":
+        return price_src * gbpusd_rate
+    return price_src
+
+
+def _estimate_pending_buy_reserved(
+    todays_proposals: list[dict[str, Any]] | None,
+    snap_lookup: dict[str, dict[str, Any]],
+    account_currency: str,
+    gbpusd_rate: float | None,
+) -> float:
+    reserved = 0.0
+    for prop in todays_proposals or []:
+        if str(prop.get("status", "")).upper() != "PENDING":
+            continue
+        if str(prop.get("action", "")).upper() != "BUY":
+            continue
+        try:
+            qty = float(prop.get("quantity", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0:
+            continue
+        t212 = prop.get("t212_ticker")
+        ys = prop.get("yahoo_symbol")
+        snap = snap_lookup.get(str(t212 or "")) or snap_lookup.get(str(ys or ""))
+        otype = str(prop.get("order_type", "MARKET")).upper()
+        lprice = prop.get("limit_price")
+        quote_price: float | None = None
+        if otype == "LIMIT" and lprice is not None:
+            try:
+                lp = float(lprice)
+                if lp > 0:
+                    quote_price = lp
+            except (TypeError, ValueError):
+                pass
+        if quote_price is None and snap and snap.get("price") is not None:
+            try:
+                sp = float(snap["price"])
+                if sp > 0:
+                    quote_price = sp
+            except (TypeError, ValueError):
+                pass
+        if quote_price is None:
+            continue
+        quote_ccy = _infer_quote_currency(snap, t212, ys)
+        price_acct = _convert_to_account_currency(quote_price, quote_ccy, account_currency, gbpusd_rate)
+        reserved += qty * price_acct
+    return reserved
+
+
+def _apply_dynamic_buy_sizing(
+    raw: dict[str, Any],
+    cash_data: dict[str, Any],
+    market_snapshots: list[dict[str, Any]],
+    settings: Settings,
+    macro_context: dict[str, Any] | None = None,
+    todays_proposals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Deterministically size BUY trade ideas from available free cash and split across ideas."""
+    ideas = raw.get("trade_ideas")
+    if not isinstance(ideas, list) or not ideas:
+        return raw
+
+    buy_ideas = [i for i in ideas if str(i.get("action", "")).upper() == "BUY"]
+    if not buy_ideas:
+        return raw
+
+    snap_lookup = _build_snapshot_lookup(market_snapshots)
+    gbpusd_rate = _extract_gbpusd_rate(macro_context)
+    free_cash = float(cash_data.get("free", 0.0) or 0.0)
+    pending_reserved = _estimate_pending_buy_reserved(
+        todays_proposals, snap_lookup, settings.account_currency, gbpusd_rate
+    )
+    available_cash = max(0.0, free_cash - pending_reserved)
+    buffer_factor = max(0.0, 1.0 - (settings.cash_buffer_pct / 100.0))
+    deployable_cash = available_cash * buffer_factor
+
+    if deployable_cash < settings.min_trade_amount:
+        for idea in buy_ideas:
+            idea["quantity"] = 0.0
+            idea["allocation_pct"] = 0.0
+        return raw
+
+    parsed_allocs: list[float | None] = []
+    for idea in buy_ideas:
+        raw_alloc = idea.get("allocation_pct")
+        val: float | None = None
+        if raw_alloc is not None:
+            try:
+                f = float(raw_alloc)
+                if f > 0:
+                    val = f
+            except (TypeError, ValueError):
+                pass
+        parsed_allocs.append(val)
+
+    equal_share = 100.0 / len(buy_ideas)
+    allocs = [a if a is not None else equal_share for a in parsed_allocs]
+
+    if settings.max_single_buy_pct > 0:
+        allocs = [min(a, settings.max_single_buy_pct) for a in allocs]
+
+    total_alloc = sum(allocs)
+    if total_alloc > 100.0 and total_alloc > 0:
+        scale = 100.0 / total_alloc
+        allocs = [a * scale for a in allocs]
+
+    for idea, alloc_pct in zip(buy_ideas, allocs):
+        target_cash = deployable_cash * (alloc_pct / 100.0)
+        if target_cash < settings.min_trade_amount:
+            idea["quantity"] = 0.0
+            idea["allocation_pct"] = 0.0
+            continue
+
+        t212 = idea.get("t212_ticker")
+        ys = idea.get("yahoo_symbol")
+        snap = snap_lookup.get(str(t212 or "")) or snap_lookup.get(str(ys or ""))
+        otype = str(idea.get("order_type", "MARKET")).upper()
+        lprice = idea.get("limit_price")
+
+        quote_price: float | None = None
+        if otype == "LIMIT" and lprice is not None:
+            try:
+                lp = float(lprice)
+                if lp > 0:
+                    quote_price = lp
+            except (TypeError, ValueError):
+                pass
+        if quote_price is None and snap and snap.get("price") is not None:
+            try:
+                sp = float(snap["price"])
+                if sp > 0:
+                    quote_price = sp
+            except (TypeError, ValueError):
+                pass
+
+        if quote_price is None or quote_price <= 0:
+            logger.warning("Cannot dynamically size BUY for %s: missing price.", t212 or ys)
+            continue
+
+        quote_ccy = _infer_quote_currency(snap, t212, ys)
+        price_acct = _convert_to_account_currency(
+            quote_price, quote_ccy, settings.account_currency, gbpusd_rate
+        )
+        if price_acct <= 0:
+            continue
+
+        qty = round(target_cash / price_acct, 4)
+        if qty <= 0:
+            idea["quantity"] = 0.0
+            idea["allocation_pct"] = 0.0
+            continue
+
+        idea["quantity"] = qty
+        idea["allocation_pct"] = round(alloc_pct, 1)
+        idea["estimated_cost"] = round(qty * price_acct, 2)
+        idea["account_currency"] = settings.account_currency
+
+    return raw
+
+
 def _build_llm_prompt(
     positions: list[dict[str, Any]],
     cash_data: dict[str, Any],
@@ -85,6 +307,7 @@ def _build_llm_prompt(
     trigger_reason: str,
     macro_context: dict[str, Any] | None = None,
     todays_proposals: list[dict[str, Any]] | None = None,
+    settings: Settings | None = None,
 ) -> str:
     held_tickers = {p.get("ticker") for p in positions if p.get("ticker")}
 
@@ -106,6 +329,7 @@ def _build_llm_prompt(
                 "sym": m["yahoo_symbol"],
                 "t212": m.get("t212_ticker"),
                 "px": m.get("price"),
+                "ccy": m.get("currency"),
                 "chg%": m.get("change_pct"),
                 "rsi14": t.get("rsi_14"),
                 "sma20": t.get("sma_20"),
@@ -123,11 +347,24 @@ def _build_llm_prompt(
         for m in compact_snaps
     }
 
+    acct_ccy = settings.account_currency if settings else "GBP"
+    max_single_pct = settings.max_single_buy_pct if settings else 50.0
+    snap_lookup = _build_snapshot_lookup(market_snapshots)
+    gbpusd_rate = _extract_gbpusd_rate(macro_context)
+    free_cash = float(cash_data.get("free", 0.0) or 0.0)
+    pending_reserved = _estimate_pending_buy_reserved(
+        todays_proposals, snap_lookup, acct_ccy, gbpusd_rate
+    )
+    available_after_pending = round(max(0.0, free_cash - pending_reserved), 2)
+
     context = {
         "trigger": trigger_reason,
         "macro": macro_context or {},
         "cash": {
+            "currency": acct_ccy,
             "free": cash_data.get("free"),
+            "pending_buy_reserved": round(pending_reserved, 2),
+            "available_after_pending": available_after_pending,
             "invested": cash_data.get("invested"),
             "ppl": cash_data.get("ppl"),
             "total": cash_data.get("total"),
@@ -162,7 +399,8 @@ def _build_llm_prompt(
         '      "t212_ticker": "<exact t212 code from DATA>",\n'
         '      "yahoo_symbol": "<exact sym from DATA>",\n'
         '      "action": "BUY" | "SELL" | "HOLD",\n'
-        '      "quantity": 1.0,\n'
+        '      "allocation_pct": 25.0,\n'
+        '      "quantity": 0.0,\n'
         '      "order_type": "MARKET" | "LIMIT",\n'
         '      "limit_price": null,\n'
         '      "reasoning": "concise rationale citing technicals, macro, and catalysts"\n'
@@ -174,9 +412,9 @@ def _build_llm_prompt(
         "- Coordinate with todays_prior_proposals (from earlier today, e.g. the 10:00 ET open run): do NOT duplicate already-PENDING or EXECUTED buys for the same ticker today.\n"
         "- Wait for better opportunities: you are NOT required to spend cash every run. If a stock is extended/overbought (e.g. RSI-14 > 65 or far above SMA-20/50) or macro risk is elevated, advise holding cash (HOLD) or propose a LIMIT buy at a pullback support level (e.g. near SMA-20 or SMA-50) instead of a MARKET buy.\n"
         "- Pick every trade_idea warranted by factoring in risk (VIX, 10Y yield, volatility, cash/position sizing), news catalysts, and technical indicators. Do NOT artificially limit the number of trade ideas.\n"
-        "- Never recommend spending more than available free cash.\n"
-        "- Never recommend selling more shares than currently held.\n"
-        "- For HOLD ideas, set quantity to 0.\n"
+        f"- For BUY ideas, Trading 212 supports fractional shares: set `allocation_pct` (between 5 and {max_single_pct:.0f}% of `available_after_pending` cash) based on conviction and risk, splitting the cash pot across your BUY ideas so the total `allocation_pct` across all BUY ideas is <= 100%. Exact fractional `quantity` will be calculated dynamically from `allocation_pct` and `available_after_pending`.\n"
+        "- For SELL ideas, set `allocation_pct` to 0 and set `quantity` up to currently held shares.\n"
+        "- For HOLD ideas, set `quantity` to 0 and `allocation_pct` to 0.\n"
         "- Return at most 5 items in key_news_catalysts and at most 5 items in risk_flags, dynamically ranked by importance.\n\n"
         f"DATA:\n{json.dumps(context, separators=(',', ':'))}"
     )
@@ -230,8 +468,15 @@ def _format_briefing_markdown(
             otype = idea.get("order_type", "MARKET")
             lprice = idea.get("limit_price")
             price_str = f" @ {lprice}" if otype == "LIMIT" and lprice else ""
+            est_cost = idea.get("estimated_cost")
+            alloc_pct = idea.get("allocation_pct")
+            ccy = idea.get("account_currency", "")
+            size_str = ""
+            if action == "BUY" and est_cost:
+                pct_part = f", {alloc_pct:.0f}% pot" if alloc_pct else ""
+                size_str = f", ~{est_cost:.2f} {ccy}{pct_part}".rstrip()
             lines.append(
-                f"- **{action} {qty} {display_name}** ({otype}{price_str}): {idea.get('reasoning', '')}"
+                f"- **{action} {qty} {display_name}** ({otype}{price_str}{size_str}): {idea.get('reasoning', '')}"
             )
     return "\n".join(lines)
 
@@ -337,6 +582,7 @@ def generate_briefing(
         trigger_reason,
         macro_context=macro_context,
         todays_proposals=todays_proposals,
+        settings=settings,
     )
 
     last_error = ""
@@ -363,6 +609,14 @@ def generate_briefing(
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"] or "{}"
                 raw = json.loads(content)
+                raw = _apply_dynamic_buy_sizing(
+                    raw=raw,
+                    cash_data=cash_data,
+                    market_snapshots=market_snapshots,
+                    settings=settings,
+                    macro_context=macro_context,
+                    todays_proposals=todays_proposals,
+                )
                 return _format_briefing_markdown(raw, name_map), raw
 
             last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
