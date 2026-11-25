@@ -310,3 +310,24 @@ def test_dynamic_buy_sizing_normalizes_over_100_and_reserves_pending(tmp_path: P
     assert msft["quantity"] == pytest.approx(1.0, rel=1e-4)   # 400 / 400
     assert googl["quantity"] == pytest.approx(2.0, rel=1e-4)  # 400 / 200
 
+
+def test_sector_diversified_focus_prevents_single_sector_crowding() -> None:
+    from analyst import _select_sector_diversified_focus
+
+    # 6 high-volatility Tech stocks with big moves + 1 each from Healthcare, Financials, Defense
+    snaps = [
+        {"yahoo_symbol": f"TECH{i}", "t212_ticker": f"TECH{i}_US_EQ", "sector": "Technology & AI", "change_pct": 8.0 - i * 0.1, "catalysts": ["news"]}
+        for i in range(6)
+    ] + [
+        {"yahoo_symbol": "LLY", "t212_ticker": "LLY_US_EQ", "sector": "Healthcare", "change_pct": 0.4, "catalysts": []},
+        {"yahoo_symbol": "JPM", "t212_ticker": "JPM_US_EQ", "sector": "Financials", "change_pct": 0.3, "catalysts": []},
+        {"yahoo_symbol": "LMT", "t212_ticker": "LMT_US_EQ", "sector": "Defense & Space", "change_pct": 0.2, "catalysts": []},
+    ]
+
+    selected, compact = _select_sector_diversified_focus(snaps, held_tickers=set(), limit=5)
+    selected_sectors = {m["sector"] for m in selected}
+    assert selected_sectors == {"Technology & AI", "Healthcare", "Financials", "Defense & Space"}
+    assert len(selected) == 5
+    assert len(compact) == 4
+
+
