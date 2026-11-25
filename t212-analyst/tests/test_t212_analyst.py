@@ -331,3 +331,38 @@ def test_sector_diversified_focus_prevents_single_sector_crowding() -> None:
     assert len(compact) == 4
 
 
+def test_five_year_compounder_pullback_prioritized_and_returns_computed() -> None:
+    from analyst import _select_sector_diversified_focus
+    from market_data import _compute_technicals
+
+    # 800 trading days (~3.2y) rising from 100 to 250 (+150%)
+    closes = [100.0 + (150.0 * i / 799.0) for i in range(800)]
+    tech = _compute_technicals(closes, [1_000_000.0] * 800)
+    assert tech["return_5y_pct"] == pytest.approx(150.0, rel=1e-2)
+    assert tech["return_1y_pct"] is not None and tech["return_1y_pct"] > 0
+
+    snaps = [
+        {
+            "yahoo_symbol": "WEAK",
+            "t212_ticker": "WEAK_US_EQ",
+            "sector": "Healthcare",
+            "price": 50.0,
+            "change_pct": 1.5,
+            "catalysts": [],
+            "technicals": {"return_5y_pct": -10.0, "return_20d_pct": 1.0, "rsi_14": 60.0},
+        },
+        {
+            "yahoo_symbol": "LLY",
+            "t212_ticker": "LLY_US_EQ",
+            "sector": "Healthcare",
+            "price": 800.0,
+            "change_pct": -0.5,
+            "catalysts": [],
+            "technicals": {"return_5y_pct": 220.0, "return_20d_pct": -3.0, "rsi_14": 42.0, "sma_50": 830.0},
+        },
+    ]
+    selected, _ = _select_sector_diversified_focus(snaps, held_tickers=set(), limit=1)
+    assert selected[0]["yahoo_symbol"] == "LLY"
+
+
+
