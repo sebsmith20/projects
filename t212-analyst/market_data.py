@@ -168,8 +168,8 @@ def _compute_technicals(closes: list[float], volumes: list[float]) -> dict[str, 
 
 def _fetch_chart_http(
     yahoo_symbol: str, range_str: str = "1y"
-) -> tuple[float | None, float | None, float | None, float | None, dict[str, Any]]:
-    """Pure-Python Yahoo Finance v8 chart JSON fetch (returns price, prev_close, chg%, vol, technicals)."""
+) -> tuple[float | None, float | None, float | None, float | None, dict[str, Any], str | None]:
+    """Pure-Python Yahoo Finance v8 chart JSON fetch (returns price, prev_close, chg%, vol, technicals, currency)."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
     try:
         resp = requests.get(
@@ -180,12 +180,13 @@ def _fetch_chart_http(
         )
         if not resp.ok:
             logger.warning("Yahoo chart HTTP %s for %s", resp.status_code, yahoo_symbol)
-            return None, None, None, None, {}
+            return None, None, None, None, {}, None
         data = resp.json()
         result = (data.get("chart", {}).get("result") or [None])[0]
         if not result:
-            return None, None, None, None, {}
+            return None, None, None, None, {}, None
 
+        currency = (result.get("meta") or {}).get("currency")
         quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
         raw_closes = quote.get("close") or []
         raw_volumes = quote.get("volume") or []
@@ -202,10 +203,10 @@ def _fetch_chart_http(
         )
         volume = volumes[-1] if volumes else None
         technicals = _compute_technicals(closes, volumes) if len(closes) >= 5 else {}
-        return price, prev_close, change_pct, volume, technicals
+        return price, prev_close, change_pct, volume, technicals, currency
     except Exception as exc:
         logger.warning("Yahoo chart HTTP fetch failed for %s: %s", yahoo_symbol, exc)
-        return None, None, None, None, {}
+        return None, None, None, None, {}, None
 
 
 MACRO_BENCHMARKS = {
@@ -222,7 +223,7 @@ def fetch_macro_context() -> dict[str, Any]:
     """Fetch external macro indicators (VIX, 10Y Yield, DXY, GBP/USD, Gold, Oil)."""
     indicators: list[dict[str, Any]] = []
     for sym, label in MACRO_BENCHMARKS.items():
-        price, _prev, chg, _vol, _tech = _fetch_chart_http(sym, range_str="5d")
+        price, _prev, chg, _vol, _tech, _ccy = _fetch_chart_http(sym, range_str="5d")
         if price is not None:
             indicators.append(
                 {
@@ -245,7 +246,9 @@ def fetch_symbol_snapshot(
     name: str | None = None,
 ) -> dict[str, Any]:
     """Pull current price, daily % change, technicals (RSI/SMA/vol), and recent news."""
-    price, prev_close, change_pct, volume, technicals = _fetch_chart_http(yahoo_symbol, range_str="1y")
+    price, prev_close, change_pct, volume, technicals, currency = _fetch_chart_http(
+        yahoo_symbol, range_str="1y"
+    )
 
     if price is None and yf is not None:
         try:
@@ -281,6 +284,7 @@ def fetch_symbol_snapshot(
         "yahoo_symbol": yahoo_symbol,
         "t212_ticker": t212_ticker,
         "name": name or yahoo_symbol,
+        "currency": currency,
         "price": round(price, 4) if price is not None else None,
         "prev_close": round(prev_close, 4) if prev_close is not None else None,
         "change_pct": round(change_pct, 2) if change_pct is not None else None,

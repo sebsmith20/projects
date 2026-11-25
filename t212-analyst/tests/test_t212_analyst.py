@@ -185,3 +185,124 @@ def test_client_order_uncertain_error_on_timeout() -> None:
     client = Trading212Client("k", "s", session=mock_session)
     with pytest.raises(OrderUncertainError):
         client.place_market_order("AAPL_US_EQ", 1.0)
+
+
+def test_dynamic_buy_sizing_splits_cash_pot_and_converts_currency(tmp_path: Path) -> None:
+    from analyst import _apply_dynamic_buy_sizing
+
+    settings = _make_settings(
+        tmp_path,
+        account_currency="GBP",
+        cash_buffer_pct=5.0,
+        max_single_buy_pct=50.0,
+        min_trade_amount=5.0,
+    )
+    # 1000 GBP free -> 950 GBP deployable after 5% buffer
+    cash_data = {"free": 1000.0}
+    macro_context = {"indicators": [{"symbol": "GBPUSD=X", "value": 1.25}]}
+    market_snapshots = [
+        {"yahoo_symbol": "AAPL", "t212_ticker": "AAPL_US_EQ", "price": 250.0, "currency": "USD"},
+        {"yahoo_symbol": "AZN.L", "t212_ticker": "AZN_L_EQ", "price": 10000.0, "currency": "GBp"},
+    ]
+    raw = {
+        "trade_ideas": [
+            {
+                "t212_ticker": "AAPL_US_EQ",
+                "yahoo_symbol": "AAPL",
+                "action": "BUY",
+                "allocation_pct": 40.0,
+                "quantity": 1.0,
+                "order_type": "MARKET",
+                "limit_price": None,
+                "reasoning": "Strong momentum",
+            },
+            {
+                "t212_ticker": "AZN_L_EQ",
+                "yahoo_symbol": "AZN.L",
+                "action": "BUY",
+                "allocation_pct": 40.0,
+                "quantity": 1.0,
+                "order_type": "LIMIT",
+                "limit_price": 9500.0,
+                "reasoning": "Pullback support",
+            },
+        ]
+    }
+    sized = _apply_dynamic_buy_sizing(
+        raw=raw,
+        cash_data=cash_data,
+        market_snapshots=market_snapshots,
+        settings=settings,
+        macro_context=macro_context,
+    )
+    aapl, azn = sized["trade_ideas"]
+    # AAPL: 40% of 950 GBP = 380 GBP. $250 / 1.25 = 200 GBP/share -> 1.9 shares
+    assert aapl["quantity"] == pytest.approx(1.9, rel=1e-4)
+    assert aapl["estimated_cost"] == pytest.approx(380.0, rel=1e-2)
+    # AZN: 40% of 950 GBP = 380 GBP. 9500 GBp limit = 95 GBP/share -> 4.0 shares
+    assert azn["quantity"] == pytest.approx(4.0, rel=1e-4)
+    assert azn["estimated_cost"] == pytest.approx(380.0, rel=1e-2)
+
+
+def test_dynamic_buy_sizing_normalizes_over_100_and_reserves_pending(tmp_path: Path) -> None:
+    from analyst import _apply_dynamic_buy_sizing
+
+    settings = _make_settings(
+        tmp_path,
+        account_currency="USD",
+        cash_buffer_pct=0.0,
+        max_single_buy_pct=60.0,
+        min_trade_amount=5.0,
+    )
+    # 1000 USD free, but 200 USD already reserved by a PENDING BUY -> 800 USD deployable
+    cash_data = {"free": 1000.0}
+    market_snapshots = [
+        {"yahoo_symbol": "NVDA", "t212_ticker": "NVDA_US_EQ", "price": 100.0, "currency": "USD"},
+        {"yahoo_symbol": "MSFT", "t212_ticker": "MSFT_US_EQ", "price": 400.0, "currency": "USD"},
+        {"yahoo_symbol": "GOOGL", "t212_ticker": "GOOGL_US_EQ", "price": 200.0, "currency": "USD"},
+    ]
+    todays_proposals = [
+        {
+            "t212_ticker": "NVDA_US_EQ",
+            "yahoo_symbol": "NVDA",
+            "action": "BUY",
+            "quantity": 2.0,
+            "order_type": "MARKET",
+            "limit_price": None,
+            "status": "PENDING",
+        }
+    ]
+    # Two BUYs with no allocation_pct -> equal 50/50 split of 800 USD = 400 USD each
+    raw = {
+        "trade_ideas": [
+            {
+                "t212_ticker": "MSFT_US_EQ",
+                "yahoo_symbol": "MSFT",
+                "action": "BUY",
+                "quantity": 1.0,
+                "order_type": "MARKET",
+                "limit_price": None,
+                "reasoning": "Cloud growth",
+            },
+            {
+                "t212_ticker": "GOOGL_US_EQ",
+                "yahoo_symbol": "GOOGL",
+                "action": "BUY",
+                "quantity": 1.0,
+                "order_type": "MARKET",
+                "limit_price": None,
+                "reasoning": "AI search",
+            },
+        ]
+    }
+    sized = _apply_dynamic_buy_sizing(
+        raw=raw,
+        cash_data=cash_data,
+        market_snapshots=market_snapshots,
+        settings=settings,
+        todays_proposals=todays_proposals,
+    )
+    msft, googl = sized["trade_ideas"]
+    assert msft["quantity"] == pytest.approx(1.0, rel=1e-4)   # 400 / 400
+    assert googl["quantity"] == pytest.approx(2.0, rel=1e-4)  # 400 / 200
+

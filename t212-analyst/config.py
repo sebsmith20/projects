@@ -50,6 +50,11 @@ class Settings:
     watchlist_path: Path
     log_level: str
 
+    account_currency: str = "GBP"
+    cash_buffer_pct: float = 5.0
+    max_single_buy_pct: float = 50.0
+    min_trade_amount: float = 5.0
+
     @property
     def t212_base_url(self) -> str:
         if self.t212_env == "live":
@@ -100,6 +105,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
         db_path=db_path,
         watchlist_path=watchlist_path,
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
+        account_currency=os.getenv("ACCOUNT_CURRENCY", "GBP").strip().upper() or "GBP",
+        cash_buffer_pct=float(os.getenv("CASH_BUFFER_PCT", "5.0")),
+        max_single_buy_pct=float(os.getenv("MAX_SINGLE_BUY_PCT", "50.0")),
+        min_trade_amount=float(os.getenv("MIN_TRADE_AMOUNT", "5.0")),
     )
 
 
