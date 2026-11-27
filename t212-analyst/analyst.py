@@ -20,19 +20,54 @@ from config import Settings
 logger = logging.getLogger(__name__)
 
 
+def _is_symbol_on_cooldown(
+    sym: str,
+    recent_briefings: list[dict[str, str]] | None,
+    ref_now: datetime,
+    cooldown_minutes: int,
+) -> bool:
+    if not recent_briefings or cooldown_minutes <= 0:
+        return False
+    ref_utc = ref_now.astimezone(ZoneInfo("UTC")) if ref_now.tzinfo else ref_now.replace(tzinfo=ZoneInfo("UTC"))
+    prefix = f"{sym} "
+    for ev in recent_briefings:
+        reason = str(ev.get("trigger_reason") or "")
+        if prefix not in reason and not reason.startswith(prefix):
+            continue
+        ts_raw = str(ev.get("timestamp") or "")
+        try:
+            ev_dt = datetime.fromisoformat(ts_raw)
+            if ev_dt.tzinfo is None:
+                ev_dt = ev_dt.replace(tzinfo=ZoneInfo("UTC"))
+            age_min = (ref_utc - ev_dt.astimezone(ZoneInfo("UTC"))).total_seconds() / 60.0
+            if 0.0 <= age_min < cooldown_minutes:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def evaluate_trigger(
     market_snapshots: list[dict[str, Any]],
     last_briefing_date: str | None,
     settings: Settings,
     now: datetime | None = None,
     todays_triggers: list[str] | None = None,
+    recent_briefings: list[dict[str, str]] | None = None,
 ) -> str | None:
     """Return a trigger reason string if an LLM analysis should run, else None."""
     reasons: list[str] = []
+    tz = ZoneInfo(settings.market_timezone)
+    local_now = now.astimezone(tz) if now else datetime.now(tz)
+    today_str = local_now.strftime("%Y-%m-%d")
 
     if not settings.daily_summary_only:
         for snap in market_snapshots:
             sym = snap["yahoo_symbol"]
+            if _is_symbol_on_cooldown(
+                sym, recent_briefings, local_now, settings.event_trigger_cooldown_minutes
+            ):
+                continue
             chg = snap.get("change_pct")
             thresh = float(snap.get("move_threshold_pct", settings.price_move_threshold_pct))
             if chg is not None and abs(chg) >= thresh:
@@ -47,10 +82,6 @@ def evaluate_trigger(
             vol_ratio = tech.get("volume_ratio_20d")
             if vol_ratio is not None and vol_ratio >= 2.0:
                 reasons.append(f"{sym} volume spike ({vol_ratio:.1f}x 20d avg)")
-
-    tz = ZoneInfo(settings.market_timezone)
-    local_now = now.astimezone(tz) if now else datetime.now(tz)
-    today_str = local_now.strftime("%Y-%m-%d")
 
     if local_now.weekday() < 5:
         if todays_triggers is not None and settings.scheduled_briefing_times:

@@ -365,4 +365,89 @@ def test_five_year_compounder_pullback_prioritized_and_returns_computed() -> Non
     assert selected[0]["yahoo_symbol"] == "LLY"
 
 
+def test_event_trigger_cooldown_skips_recent_symbol(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path, event_trigger_cooldown_minutes=180)
+    snaps = [
+        {"yahoo_symbol": "NVDA", "change_pct": 3.8, "move_threshold_pct": 2.0, "catalysts": []},
+        {"yahoo_symbol": "AAPL", "change_pct": 2.5, "move_threshold_pct": 2.0, "catalysts": []},
+    ]
+    now_et = datetime(2026, 11, 27, 11, 0, tzinfo=ZoneInfo("America/New_York"))
+    # NVDA triggered 30 minutes ago (15:30 UTC vs 16:00 UTC) -> on cooldown; AAPL is fresh
+    recent = [
+        {
+            "timestamp": "2026-11-27T15:30:00+00:00",
+            "trigger_reason": "NVDA moved +3.50% (threshold +/-2.0%)",
+        }
+    ]
+    reason = evaluate_trigger(
+        snaps,
+        last_briefing_date="2026-11-26",
+        settings=settings,
+        now=now_et,
+        todays_triggers=[recent[0]["trigger_reason"]],
+        recent_briefings=recent,
+    )
+    assert reason is not None
+    assert "NVDA" not in reason
+    assert "AAPL moved +2.50%" in reason
+
+
+def test_five_year_history_cache_uses_5d_on_second_call() -> None:
+    import market_data
+
+    market_data._HISTORY_5Y_CACHE.clear()
+    calls: list[str] = []
+
+    def fake_raw(sym: str, range_str: str):
+        calls.append(range_str)
+        if range_str == "5y":
+            return [100.0 + i for i in range(10)], [1000.0] * 10, "USD"
+        return [108.0, 110.5], [1000.0, 1200.0], "USD"
+
+    with patch.object(market_data, "_fetch_chart_raw", side_effect=fake_raw):
+        p1, _, _, _, _, _ = market_data._fetch_chart_http("TEST_CACHE", range_str="5y")
+        p2, _, _, _, _, _ = market_data._fetch_chart_http("TEST_CACHE", range_str="5y")
+
+    assert calls == ["5y", "5d"]
+    assert p1 == 109.0
+    assert p2 == 110.5
+
+
+def test_combined_morning_and_evening_buy_suggestions_in_alert() -> None:
+    from notifier import format_notification_message
+
+    morning_buy = {
+        "id": 1,
+        "daily_num": 1,
+        "action": "BUY",
+        "quantity": 1.5,
+        "yahoo_symbol": "LLY",
+        "t212_ticker": "LLY_US_EQ",
+        "order_type": "MARKET",
+        "limit_price": None,
+    }
+    evening_buy = {
+        "id": 2,
+        "daily_num": 2,
+        "action": "BUY",
+        "quantity": 2.0,
+        "yahoo_symbol": "JPM",
+        "t212_ticker": "JPM_US_EQ",
+        "order_type": "LIMIT",
+        "limit_price": 240.0,
+    }
+    msg = format_notification_message(
+        trigger_reason="Scheduled briefing [slot 15:30]",
+        summary_markdown="### Trade Ideas\n- **BUY 2.0 JPM**",
+        proposal_ids=[2],
+        env="demo",
+        proposals=[evening_buy],
+        all_pending_proposals=[morning_buy, evening_buy],
+    )
+    assert "All Today's Pending BUY Suggestions" in msg
+    assert "#1: BUY 1.5 LLY (MARKET) -> /approve 1 | /reject 1" in msg
+    assert "#2: BUY 2.0 JPM (LIMIT @ 240.0) [NEW] -> /approve 2 | /reject 2" in msg
+
+
+
 

@@ -18,6 +18,7 @@ def format_notification_message(
     proposal_ids: Sequence[int],
     env: str,
     proposals: Sequence[dict[str, object]] | None = None,
+    all_pending_proposals: Sequence[dict[str, object]] | None = None,
 ) -> str:
     lines = [
         f"=== T212 Market Briefing ({env.upper()}) ===",
@@ -25,18 +26,43 @@ def format_notification_message(
         "",
         summary_markdown.strip(),
     ]
-    if proposals:
-        lines.append("")
-        lines.append("Pending Trade Proposals (tap or reply to approve):")
-        for p in proposals:
-            pid = p.get("daily_num") or p["id"]
-            action = p["action"]
-            qty = p["quantity"]
-            sym = p.get("yahoo_symbol") or p["t212_ticker"]
-            otype = p["order_type"]
-            lines.append(
-                f"  - #{pid}: {action} {qty} {sym} ({otype}) -> /approve {pid} | /reject {pid}"
-            )
+    new_ids = {int(p["id"]) for p in (proposals or []) if p.get("id") is not None} | set(proposal_ids)
+    combined = list(all_pending_proposals) if all_pending_proposals is not None else list(proposals or [])
+
+    if combined:
+        buy_props = [p for p in combined if str(p.get("action", "")).upper() == "BUY"]
+        other_props = [p for p in combined if str(p.get("action", "")).upper() != "BUY"]
+
+        if buy_props:
+            lines.append("")
+            lines.append("All Today's Pending BUY Suggestions (tap or reply to approve):")
+            for p in buy_props:
+                pid = p.get("daily_num") or p["id"]
+                qty = p["quantity"]
+                sym = p.get("yahoo_symbol") or p["t212_ticker"]
+                otype = p["order_type"]
+                lprice = p.get("limit_price")
+                limit_str = f" @ {lprice}" if otype == "LIMIT" and lprice is not None else ""
+                new_tag = " [NEW]" if p.get("id") in new_ids and len(combined) > len(new_ids) else ""
+                lines.append(
+                    f"  - #{pid}: BUY {qty} {sym} ({otype}{limit_str}){new_tag} -> /approve {pid} | /reject {pid}"
+                )
+
+        if other_props:
+            lines.append("")
+            lines.append("Pending SELL Suggestions:")
+            for p in other_props:
+                pid = p.get("daily_num") or p["id"]
+                action = p["action"]
+                qty = p["quantity"]
+                sym = p.get("yahoo_symbol") or p["t212_ticker"]
+                otype = p["order_type"]
+                lprice = p.get("limit_price")
+                limit_str = f" @ {lprice}" if otype == "LIMIT" and lprice is not None else ""
+                new_tag = " [NEW]" if p.get("id") in new_ids and len(combined) > len(new_ids) else ""
+                lines.append(
+                    f"  - #{pid}: {action} {qty} {sym} ({otype}{limit_str}){new_tag} -> /approve {pid} | /reject {pid}"
+                )
     elif proposal_ids:
         lines.append("")
         lines.append("Pending Trade Proposals (require explicit human approval):")
@@ -51,6 +77,7 @@ def send_notifications(
     summary_markdown: str,
     proposal_ids: Sequence[int],
     proposals: Sequence[dict[str, object]] | None = None,
+    all_pending_proposals: Sequence[dict[str, object]] | None = None,
 ) -> None:
     message = format_notification_message(
         trigger_reason=trigger_reason,
@@ -58,6 +85,7 @@ def send_notifications(
         proposal_ids=proposal_ids,
         env=settings.t212_env,
         proposals=proposals,
+        all_pending_proposals=all_pending_proposals,
     )
 
     # 1. Always print to console
