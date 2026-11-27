@@ -10,12 +10,14 @@ import logging
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
 
 from config import configure_logging, load_settings
 from executor import approve_and_execute
+from notifier import load_watchlist_name_map
 from storage import Storage
 from t212_client import Trading212Client
 
@@ -37,6 +39,7 @@ class TelegramBot:
         storage: Storage,
         client: Trading212Client,
         env: str,
+        watchlist_path: Path | None = None,
     ) -> None:
         if not bot_token or not allowed_chat_id:
             raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env.")
@@ -45,7 +48,13 @@ class TelegramBot:
         self.storage = storage
         self.client = client
         self.env = env
+        self.watchlist_path = watchlist_path
         self._offset: int | None = None
+
+    def _display_name(self, prop: dict[str, Any], names: dict[str, str]) -> str:
+        ys = str(prop.get("yahoo_symbol") or "")
+        t212 = str(prop.get("t212_ticker") or "")
+        return names.get(ys) or names.get(t212) or ys or t212
 
     def send_text(self, text: str) -> None:
         try:
@@ -77,6 +86,8 @@ class TelegramBot:
                 "/help - Show this help message"
             )
 
+        names = load_watchlist_name_map(self.watchlist_path)
+
         if cmd == "/list":
             pending = self.storage.list_proposals(status="PENDING", limit=15)
             if not pending:
@@ -85,8 +96,9 @@ class TelegramBot:
             for p in pending:
                 num = p.get("daily_num") or p["id"]
                 limit_str = f" @ {p['limit_price']}" if p["limit_price"] is not None else ""
+                dname = self._display_name(p, names)
                 lines.append(
-                    f"\n#{num} | {p['action']} {p['quantity']} {p['t212_ticker']} "
+                    f"\n#{num} | {p['action']} {p['quantity']} {dname} "
                     f"({p['order_type']}{limit_str})\n"
                     f"Reason: {p['reasoning']}\n"
                     f"-> /approve {num}  or  /reject {num}"
@@ -101,8 +113,9 @@ class TelegramBot:
             for p in recent:
                 num = p.get("daily_num") or p["id"]
                 oid = f" (order {p['t212_order_id']})" if p.get("t212_order_id") else ""
+                dname = self._display_name(p, names)
                 lines.append(
-                    f"#{num} [{p['status']}] {p['action']} {p['quantity']} {p['t212_ticker']}{oid}"
+                    f"#{num} [{p['status']}] {p['action']} {p['quantity']} {dname}{oid}"
                 )
             return "\n".join(lines)
 
@@ -214,6 +227,7 @@ def main() -> int:
         storage=storage,
         client=client,
         env=settings.t212_env,
+        watchlist_path=settings.watchlist_path,
     )
     bot.run_forever()
     return 0

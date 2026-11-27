@@ -438,15 +438,16 @@ def test_combined_morning_and_evening_buy_suggestions_in_alert() -> None:
     }
     msg = format_notification_message(
         trigger_reason="Scheduled briefing [slot 15:30]",
-        summary_markdown="### Trade Ideas\n- **BUY 2.0 JPM**",
+        summary_markdown="### Trade Ideas\n- **BUY 2.0 JPMorgan Chase & Co. (JPM)**",
         proposal_ids=[2],
         env="demo",
         proposals=[evening_buy],
         all_pending_proposals=[morning_buy, evening_buy],
+        name_map={"LLY": "Eli Lilly and Co. (LLY)", "JPM": "JPMorgan Chase & Co. (JPM)"},
     )
     assert "All Today's Pending BUY Suggestions" in msg
-    assert "#1: BUY 1.5 LLY (MARKET) -> /approve 1 | /reject 1" in msg
-    assert "#2: BUY 2.0 JPM (LIMIT @ 240.0) [NEW] -> /approve 2 | /reject 2" in msg
+    assert "#1: BUY 1.5 Eli Lilly and Co. (LLY) (MARKET) -> /approve 1 | /reject 1" in msg
+    assert "#2: BUY 2.0 JPMorgan Chase & Co. (JPM) (LIMIT @ 240.0) [NEW] -> /approve 2 | /reject 2" in msg
 
 
 
