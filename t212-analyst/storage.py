@@ -171,6 +171,14 @@ class Storage:
             ).fetchall()
             return [str(r["trigger_reason"]) for r in rows]
 
+    def get_todays_briefing_events(self, date_prefix: str) -> list[dict[str, str]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT timestamp, trigger_reason FROM briefings WHERE timestamp LIKE ? ORDER BY id ASC",
+                (f"{date_prefix}%",),
+            ).fetchall()
+            return [{"timestamp": str(r["timestamp"]), "trigger_reason": str(r["trigger_reason"])} for r in rows]
+
     def get_todays_proposals(self, date_prefix: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -179,6 +187,18 @@ class Storage:
                        order_type, limit_price, status
                 FROM trade_proposals
                 WHERE proposal_date = ? OR created_at LIKE ?
+                ORDER BY id ASC
+                """,
+                (date_prefix, f"{date_prefix}%"),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_todays_pending_proposals(self, date_prefix: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM trade_proposals
+                WHERE status = 'PENDING' AND (proposal_date = ? OR created_at LIKE ?)
                 ORDER BY id ASC
                 """,
                 (date_prefix, f"{date_prefix}%"),

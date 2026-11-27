@@ -73,7 +73,8 @@ def run_cycle(
 
     last_date = storage.get_last_briefing_date()
     today_utc_prefix = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
-    todays_triggers = storage.get_todays_briefing_triggers(today_utc_prefix)
+    todays_events = storage.get_todays_briefing_events(today_utc_prefix)
+    todays_triggers = [e["trigger_reason"] for e in todays_events]
     trigger_reason = (
         "Manual force-analysis run"
         if force_analysis
@@ -82,6 +83,7 @@ def run_cycle(
             last_date,
             settings,
             todays_triggers=todays_triggers,
+            recent_briefings=todays_events,
         )
     )
 
@@ -116,12 +118,14 @@ def run_cycle(
     created_proposals = [
         p for pid in proposal_ids if (p := storage.get_proposal(pid)) is not None
     ]
+    todays_pending = storage.get_todays_pending_proposals(today_utc_prefix)
     send_notifications(
         settings=settings,
         trigger_reason=trigger_reason,
         summary_markdown=summary_md,
         proposal_ids=proposal_ids,
         proposals=created_proposals,
+        all_pending_proposals=todays_pending,
     )
 
 

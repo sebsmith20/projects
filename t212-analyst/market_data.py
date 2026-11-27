@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -170,25 +173,38 @@ def _compute_technicals(closes: list[float], volumes: list[float]) -> dict[str, 
     }
 
 
-def _fetch_chart_http(
-    yahoo_symbol: str, range_str: str = "5y"
-) -> tuple[float | None, float | None, float | None, float | None, dict[str, Any], str | None]:
-    """Pure-Python Yahoo Finance v8 chart JSON fetch (returns price, prev_close, chg%, vol, technicals, currency)."""
+_THREAD_LOCAL = threading.local()
+_HISTORY_CACHE_LOCK = threading.Lock()
+_HISTORY_5Y_CACHE: dict[tuple[str, str], tuple[list[float], list[float], str | None]] = {}
+
+
+def _get_http_session() -> requests.Session:
+    sess = getattr(_THREAD_LOCAL, "session", None)
+    if sess is None:
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": "Mozilla/5.0 (compatible; t212-analyst/1.0)"})
+        _THREAD_LOCAL.session = sess
+    return sess
+
+
+def _fetch_chart_raw(
+    yahoo_symbol: str, range_str: str
+) -> tuple[list[float], list[float], str | None]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
     try:
-        resp = requests.get(
+        sess = _get_http_session()
+        resp = sess.get(
             url,
             params={"range": range_str, "interval": "1d"},
-            headers={"User-Agent": "Mozilla/5.0 (compatible; t212-analyst/1.0)"},
             timeout=10,
         )
         if not resp.ok:
             logger.warning("Yahoo chart HTTP %s for %s", resp.status_code, yahoo_symbol)
-            return None, None, None, None, {}, None
+            return [], [], None
         data = resp.json()
         result = (data.get("chart", {}).get("result") or [None])[0]
         if not result:
-            return None, None, None, None, {}, None
+            return [], [], None
 
         currency = (result.get("meta") or {}).get("currency")
         quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
@@ -197,20 +213,57 @@ def _fetch_chart_http(
 
         closes = [float(c) for c in raw_closes if c is not None]
         volumes = [float(v) for v in raw_volumes if v is not None]
-
-        price = closes[-1] if len(closes) >= 1 else None
-        prev_close = closes[-2] if len(closes) >= 2 else None
-        change_pct = (
-            ((price - prev_close) / prev_close) * 100.0
-            if price is not None and prev_close
-            else None
-        )
-        volume = volumes[-1] if volumes else None
-        technicals = _compute_technicals(closes, volumes) if len(closes) >= 5 else {}
-        return price, prev_close, change_pct, volume, technicals, currency
+        return closes, volumes, currency
     except Exception as exc:
         logger.warning("Yahoo chart HTTP fetch failed for %s: %s", yahoo_symbol, exc)
+        return [], [], None
+
+
+def _fetch_chart_http(
+    yahoo_symbol: str, range_str: str = "5y"
+) -> tuple[float | None, float | None, float | None, float | None, dict[str, Any], str | None]:
+    """Pure-Python Yahoo Finance v8 chart JSON fetch with daily 5y caching."""
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cache_key = (yahoo_symbol, today_utc)
+
+    closes: list[float] = []
+    volumes: list[float] = []
+    currency: str | None = None
+
+    if range_str == "5y":
+        with _HISTORY_CACHE_LOCK:
+            cached = _HISTORY_5Y_CACHE.get(cache_key)
+        if cached is not None:
+            hist_closes, hist_vols, cached_ccy = cached
+            d5_closes, d5_vols, d5_ccy = _fetch_chart_raw(yahoo_symbol, "5d")
+            if d5_closes:
+                closes = hist_closes + [d5_closes[-1]]
+                volumes = hist_vols + ([d5_vols[-1]] if d5_vols else [])
+                currency = d5_ccy or cached_ccy
+
+    if not closes:
+        closes, volumes, currency = _fetch_chart_raw(yahoo_symbol, range_str)
+        if range_str == "5y" and len(closes) >= 2:
+            with _HISTORY_CACHE_LOCK:
+                # Prune prior days so cache stays bounded to today's universe
+                stale = [k for k in _HISTORY_5Y_CACHE if k[1] != today_utc]
+                for k in stale:
+                    _HISTORY_5Y_CACHE.pop(k, None)
+                _HISTORY_5Y_CACHE[cache_key] = (closes[:-1], volumes[:-1], currency)
+
+    if not closes:
         return None, None, None, None, {}, None
+
+    price = closes[-1]
+    prev_close = closes[-2] if len(closes) >= 2 else None
+    change_pct = (
+        ((price - prev_close) / prev_close) * 100.0
+        if prev_close
+        else None
+    )
+    volume = volumes[-1] if volumes else None
+    technicals = _compute_technicals(closes, volumes) if len(closes) >= 5 else {}
+    return price, prev_close, change_pct, volume, technicals, currency
 
 
 MACRO_BENCHMARKS = {
@@ -224,22 +277,28 @@ MACRO_BENCHMARKS = {
 
 
 def fetch_macro_context() -> dict[str, Any]:
-    """Fetch external macro indicators (VIX, 10Y Yield, DXY, GBP/USD, Gold, Oil)."""
-    indicators: list[dict[str, Any]] = []
-    for sym, label in MACRO_BENCHMARKS.items():
+    """Fetch external macro indicators (VIX, 10Y Yield, DXY, GBP/USD, Gold, Oil) concurrently."""
+    def _fetch_one(item: tuple[str, str]) -> dict[str, Any] | None:
+        sym, label = item
         price, _prev, chg, _vol, _tech, _ccy = _fetch_chart_http(sym, range_str="5d")
-        if price is not None:
-            indicators.append(
-                {
-                    "symbol": sym,
-                    "name": label,
-                    "value": round(price, 3),
-                    "change_pct": round(chg, 2) if chg is not None else None,
-                }
-            )
+        if price is None:
+            return None
+        return {
+            "symbol": sym,
+            "name": label,
+            "value": round(price, 3),
+            "change_pct": round(chg, 2) if chg is not None else None,
+        }
+
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        ind_future = list(pool.map(_fetch_one, MACRO_BENCHMARKS.items()))
+        news_future = pool.submit(fetch_rss_news, "SPY", 3)
+        indicators = [ind for ind in ind_future if ind is not None]
+        macro_headlines = [n["title"] for n in news_future.result()]
+
     return {
         "indicators": indicators,
-        "macro_headlines": [n["title"] for n in fetch_rss_news("SPY", limit=3)],
+        "macro_headlines": macro_headlines,
     }
 
 
@@ -343,15 +402,17 @@ def collect_market_universe(
             },
         )
 
-    snapshots: list[dict[str, Any]] = []
-    for target in targets.values():
-        snapshots.append(
-            fetch_symbol_snapshot(
-                yahoo_symbol=target["yahoo_symbol"],
-                t212_ticker=target.get("t212_ticker"),
-                move_threshold_pct=target["move_threshold_pct"],
-                name=target.get("name"),
-                sector=target.get("sector"),
-            )
+    def _fetch_target(target: dict[str, Any]) -> dict[str, Any]:
+        return fetch_symbol_snapshot(
+            yahoo_symbol=target["yahoo_symbol"],
+            t212_ticker=target.get("t212_ticker"),
+            move_threshold_pct=target["move_threshold_pct"],
+            name=target.get("name"),
+            sector=target.get("sector"),
         )
-    return snapshots
+
+    target_list = list(targets.values())
+    if not target_list:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(target_list))) as pool:
+        return list(pool.map(_fetch_target, target_list))
